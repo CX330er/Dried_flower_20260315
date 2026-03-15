@@ -1,0 +1,6 @@
+name: weed_out
+channels:
+  - defaults
+dependencies:
+  - python=3.10
+prefix: D:\anaconda3\envs\weed_out
