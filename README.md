@@ -10,7 +10,8 @@ My research on enhancing the generalization ability of EEG signal recognition mo
 The `data/raw` directory stores the original EEG signals from **BCIC-IV 2a**:
 - 9 subjects.
 - Four-class motor imagery classification.
-- Each subject includes training session **T** and evaluation session **E**.
+- 22 EEG channels and 3 EOG channels.
+- Each subject includes training session **T** and evaluation session **E** such as 'A01T' and 'A01E'.
 - Files are stored in `.gdf` format.
 
 ## This is the structure of my current project：
@@ -33,24 +34,24 @@ Dried_flower/
 └─ notebooks/
 ```
 
---"environment.yml" file is used to record the Conda environment for easy replication on Github and Codex
+-"environment.yml" file is used to record the Conda environment for easy replication on Github and Codex
 
---"main.py" serves as the unified entry point
+-"main.py" serves as the unified entry point
 
---"configs" stores model configuration files, including data path, batch size, learning rate, epoch, dropout, etc
+-"configs" stores model configuration files, including data path, batch size, learning rate, epoch, dropout, etc
 
---"data" stores raw data, processed data, and partitioned data
+-"data" stores raw data, processed data, and partitioned data
 
---"datasets" contains the code for reading and processing data
+-"datasets" contains the code for reading and processing data
 
---"models" is used to store the baseline and core model code
+-"models" is used to store the baseline and core model code
 
---"trainers" for placing training and evaluation logic code
+-"trainers" for placing training and evaluation logic code
 
---"utils" contains general tools including fixing random seeds, logging, result evaluation metrics, and model saving
+-"utils" contains general tools including fixing random seeds, logging, result evaluation metrics, and model saving
 
-"scripts" for quick running scripts
+-"scripts" for quick running scripts
 
-"results" for output results
+-"results" for output results
 
-"Notebooks" for exploratory analysis code
+-"Notebooks" for exploratory analysis code
