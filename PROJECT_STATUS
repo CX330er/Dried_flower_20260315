@@ -1,6 +1,39 @@
 ## Instructions for executing the current project
 
 ## current stage task：
+1. Establish models capable of processing previous data: ShallowConvNet, DeepConvNet, and EEGNet code
+
+2.The task involves four-class motor imagery, where relevant parameters of each baseline model are saved, the training process is visualized, relevant evaluation metrics are selected, and performance metrics are visualized
+
+## current task specification
+1.The data used is the currently processed data, which consists of data from 9 subjects in the format of .npz files, located in the path "D:\PycharmProjects\Dried_Flower\scripts\data\processed\bcic_iv_2a". It only utilizes labeled training samples.
+
+2.The official correct label data used to evaluate the model performance results is stored in the path "D:\PycharmProjects\Dried_Flower\data\raw\true_labels", in the format of .mat. Each file corresponds to the test data in the original dataset
+
+3.The input shape of Zhang Liang is unified as [B, 22, T], and it is up to the model to decide whether to expand the dimension to [B, 1, 22, T]; the labels are unified as y in {0,1,2,3}, which correspond to four types of motor imagery actions respectively
+
+4.The data was divided using the LOSO (Leave-One-Subject-Out) strategy, which involved dividing the 9 subjects into 9 folds. Within each fold, 1 subject served as the test set, while the remaining 8 subjects were used as the training set. Within the training set, a validation set was further split (with a ratio of 8:2) using a fixed random seed for trial-based random splitting
+
+5.No longer alter the parameters (22ch, 2-6s, 5-30Hz, 250Hz) in the signal preprocessing step, and only use the train statistics for normalization
+
+6.All baseline models utilize the same set of training settings:
+Epoch：300
+Optimizer：Adam
+LR：1e-3
+Batch size：64
+Loss：CrossEntropy
+Early stopping：patience=50
+Fix random seed
+
+7.Each model should generate a file: 
+results/<model_name>/fold_x/metrics.json
+results/<model_name>/fold_x/confusion_matrix.png
+results/<model_name>/summary.csv
+Full model comparison table: results/baseline_compare.csv
+
+
+## Completed items：
+I have now completed the data reading and processing part of Stage 1.1, which includes the following:
 1.Read the original file and retain 22 EEG channels
 
 2.Analyze event codes and establish a mapping of four types of labels
@@ -11,19 +44,10 @@
 
 5.Delete the trial you have defined as invalid
 
-6.Create a split based on subject/session, with a focus on supporting LOSO
+6.Save in a unified sample format
 
-7.Only use training set statistics for normalization
-
-8.Save in a unified sample format
-
-9.Output data statistics report
-
-## Completed items：
-none
+7.Output data statistics report
 
 ## next goal：
 create baseline model include：ShallowConvNet、DeepConvNet、EEGNet
 
-## run command：
-none
