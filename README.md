@@ -14,6 +14,7 @@ The `data/raw` directory stores the original EEG signals from **BCIC-IV 2a**:
 - Files are stored in `.gdf` format.
 
 ## This is the structure of my current project：
+```text
 Dried_flower/
 ├─ .gitignore
 ├─ environment.yml
@@ -30,6 +31,7 @@ Dried_flower/
 ├─ scripts/
 ├─ results/
 └─ notebooks/
+```
 
 --"environment.yml" file is used to record the Conda environment for easy replication on Github and Codex
 
