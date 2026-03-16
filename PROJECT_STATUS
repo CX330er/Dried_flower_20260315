@@ -1,9 +1,29 @@
 ## Instructions for executing the current project
 
-1.current stage：
+## current stage task：
+1.Read the original file and retain 22 EEG channels
 
-2.Completed items：
+2.Analyze event codes and establish a mapping of four types of labels
 
-3.next goal：
+3.Switch epochs based on a fixed cue window
 
-4.run command：
+4.Unified filtering/resampling
+
+5.Delete the trial you have defined as invalid
+
+6.Create a split based on subject/session, with a focus on supporting LOSO
+
+7.Only use training set statistics for normalization
+
+8.Save in a unified sample format
+
+9.Output data statistics report
+
+## Completed items：
+none
+
+## next goal：
+create baseline model include：ShallowConvNet、DeepConvNet、EEGNet
+
+## run command：
+none
