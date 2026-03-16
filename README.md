@@ -1,7 +1,19 @@
 # Dried_flower_20260315
 My research on enhancing the generalization ability of EEG signal recognition models
 
-This is the structure of my current project：
+## Current research stages
+1. Data processing and baseline model establishment.
+2. Structural innovation and improvement on existing models.
+3. Advanced methods including domain adaptation and meta-learning.
+
+## Raw dataset note
+The `data/raw` directory stores the original EEG signals from **BCIC-IV 2a**:
+- 9 subjects.
+- Four-class motor imagery classification.
+- Each subject includes training session **T** and evaluation session **E**.
+- Files are stored in `.gdf` format.
+
+## This is the structure of my current project：
 Dried_flower/
 ├─ .gitignore
 ├─ environment.yml
