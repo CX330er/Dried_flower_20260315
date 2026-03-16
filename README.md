@@ -22,6 +22,7 @@ Dried_flower/
 ├─ main.py
 ├─ configs/
 ├─ data/
+│  ├─ true_label/
 │  ├─ raw/
 │  ├─ processed/
 │  └─ splits/
@@ -40,7 +41,7 @@ Dried_flower/
 
 `configs` stores model configuration files, including data path, batch size, learning rate, epoch, dropout, etc
 
-`data` stores raw data, processed data, and partitioned data
+`data` stores evaluate data's true label, raw data, processed data, and partitioned data
 
 `datasets` contains the code for reading and processing data
 
