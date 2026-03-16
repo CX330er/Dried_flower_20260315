@@ -49,5 +49,5 @@ I have now completed the data reading and processing part of Stage 1.1, which in
 7.Output data statistics report
 
 ## next goal：
-create baseline model include：ShallowConvNet、DeepConvNet、EEGNet
+establish two models, FBCNet and MSFBCNN, as baselines
 
