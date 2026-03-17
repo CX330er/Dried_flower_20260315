@@ -14,7 +14,7 @@ The `data/raw` directory stores the original EEG signals from **BCIC-IV 2a**:
 - Each subject includes training session **T** and evaluation session **E** such as 'A01T' and 'A01E'.
 - Files are stored in `.gdf` format.
 
-## This is the structure of my current project：
+## Project structure：
 ```text
 Dried_flower/
 ├─ .gitignore
@@ -35,24 +35,49 @@ Dried_flower/
 └─ notebooks/
 ```
 
-`environment.yml` file is used to record the Conda environment for easy replication on Github and Codex
+## Stage 1.2 baseline scope
+This repository now contains three baseline models for four-class motor imagery EEG classification:
+- `ShallowConvNet`
+- `DeepConvNet`
+- `EEGNet`
 
-`main.py` serves as the unified entry point
+Shared training setup:
+-LOSO(Leave-One-Subject-Out)across`.npz`subjects.
+-validation split in training subjects with fixed seed.
+-Epochs:300
+-Optimizer:Adam
+-Learning rate:1e-3
+-Batch size:64
+-Loss:CrossEntropy
+-Early stopping:patience 50
 
-`configs` stores model configuration files, including data path, batch size, learning rate, epoch, dropout, etc
+## Data format assumptions
+Processed per-subject files are expected at:
+- `data/processed/bcic_iv_2a/*.npz`
 
-`data` stores evaluate data's true label, raw data, processed data, and partitioned data
+Each`.npz`contains:
+-`x`or`X`:EEG trials with shape `[N, 22, T]`
+-`y`or`Y`:labels in `{0, 1, 2, 3}`
 
-`datasets` contains the code for reading and processing data
+## Run training
+Train all baselines:
+```bash
+python main.py --model all --data_dir data/processed/bcic_iv_2a --results_root results
+```
 
-`models` is used to store the baseline and core model code
+Train one model:
+```bash
+python main.py --model EEGNet
+```
 
-`trainers` for placing training and evaluation logic code
+## Output files
+For each model/fold
+-`results/<model_name_lower>/fold_x/metrics.json`
+-`results/<model_name_lower>/fold_x/confusion_matrix.png`
+-`results/<model_name_lower>/fold_x/training_curve.png`
 
-`utils` contains general tools including fixing random seeds, logging, result evaluation metrics, and model saving
+Per-model summary:
+-`results/<model_name_lower>/summary.csv`
 
-`scripts` for quick running scripts
-
-`results` for output results
-
-`Notebooks` for exploratory analysis code
+Cross-model comparison:
+-`results/baselinecompare.csv`
