@@ -1,7 +1,7 @@
 # Dried_flower_20260315
 My research on enhancing the generalization ability of EEG signal recognition models
 
-## Current research stages
+## research stages
 1. Data processing and baseline model establishment.
 2. Structural innovation and improvement on existing models.
 3. Advanced methods including domain adaptation and meta-learning.
