@@ -1,0 +1,21 @@
+seed: 42
+train:
+  epochs: 300
+  optimizer: Adam
+  lr: 0.001
+  batch_size: 64
+  loss: CrossEntropy
+  early_stopping_patience: 50
+
+experiment:
+  task: four-class motor imagery
+  strategy: LOSO
+  models:
+    - ShallowConvNet
+    - DeepConvNet
+    - EEGNet
+
+data:
+  processed_dir: data/processed/bcic_iv_2a
+  input_shape: [B, 22, T]
+  labels: [0, 1, 2, 3]
