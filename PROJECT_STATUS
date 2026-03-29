@@ -1,16 +1,18 @@
 ## Instructions for executing the current project
 
 ## current stage task：
-1. Establish models capable of processing previous data: ShallowConvNet, DeepConvNet, and EEGNet code
+1. Establish models capable of processing previous data: FBCNet and MSFBCNN
 
 2.The task involves four-class motor imagery, where relevant parameters of each baseline model are saved, the training process is visualized, relevant evaluation metrics are selected, and performance metrics are visualized
+
+3.I need you to not only save the performance results of the model test but also visualize them
 
 ## current task specification
 1.The data used is the currently processed data, which consists of data from 9 subjects in the format of .npz files, located in the path "D:\PycharmProjects\Dried_Flower\scripts\data\processed\bcic_iv_2a". It only utilizes labeled training samples.
 
 2.The official correct label data used to evaluate the model performance results is stored in the path "D:\PycharmProjects\Dried_Flower\data\raw\true_labels", in the format of .mat. Each file corresponds to the test data in the original dataset
 
-3.The input shape of Zhang Liang is unified as [B, 22, T], and it is up to the model to decide whether to expand the dimension to [B, 1, 22, T]; the labels are unified as y in {0,1,2,3}, which correspond to four types of motor imagery actions respectively
+3.The input shape of tensor is unified as [B, 22, T], and it is up to the model to decide whether to expand the dimension to [B, 1, 22, T]; the labels are unified as y in {0,1,2,3}, which correspond to four types of motor imagery actions respectively
 
 4.The data was divided using the LOSO (Leave-One-Subject-Out) strategy, which involved dividing the 9 subjects into 9 folds. Within each fold, 1 subject served as the test set, while the remaining 8 subjects were used as the training set. Within the training set, a validation set was further split (with a ratio of 8:2) using a fixed random seed for trial-based random splitting
 
@@ -33,6 +35,7 @@ Full model comparison table: results/baseline_compare.csv
 
 
 ## Completed items：
+2026.3.20
 I have now completed the data reading and processing part of Stage 1.1, which includes the following:
 1.Read the original file and retain 22 EEG channels
 
@@ -48,6 +51,11 @@ I have now completed the data reading and processing part of Stage 1.1, which in
 
 7.Output data statistics report
 
+2026.3.29
+And I have completed the baseline model part pf Stage 1.2, which include the following:
+1.Establishing the baseline model :ShallowConvNet, DeepConvNet and EEGNet
+2.trainning and testing the ShallowConvNet, DeepConvNet and EEGNet by LOSO task and input the results
+
 ## next goal：
-establish two models, FBCNet and MSFBCNN, as baselines
+Make innovative modifications and innovations to EEGNet in terms of its structure to enhance its cross-subject generalization performance (LOSO task)
 
