@@ -14,16 +14,26 @@ from tqdm import tqdm
 from datasets.loso_npz import EEGDataset, build_loso_folds, load_subject_data, normalize_by_train_stats
 from models.deepconvnet import DeepConvNet
 from models.eegnet import EEGNet
+from models.fbcnet import FBCNet
+from models.msfbcnn import MSFBCNN
 from models.shallowconvnet import ShallowConvNet
-from utils.metrics import compute_metrics, save_confusion_matrix, save_training_curve
+from utils.metrics import (
+    compute_metrics,
+    save_confusion_matrix,
+    save_model_comparison_plots,
+    save_training_curve,
+)
 from utils.seed import set_seed
 
 MODEL_REGISTRY = {
     "ShallowConvNet": ShallowConvNet,
     "DeepConvNet": DeepConvNet,
     "EEGNet": EEGNet,
+    "FBCNet": FBCNet,
+    "MSFBCNN": MSFBCNN,
 }
 
+ALL_MODELS = ["ShallowConvNet", "DeepConvNet", "EEGNet", "FBCNet", "MSFBCNN"]
 
 class EarlyStopping:
     def __init__(self, patience: int = 50):
@@ -211,7 +221,7 @@ def run_all_baselines(data_dir: str = "data/processed/bcic_iv_2a", results_root:
     import pandas as pd
 
     compare_rows = []
-    for model_name in ["ShallowConvNet", "DeepConvNet", "EEGNet"]:
+    for model_name in ALL_MODELS:
         df = train_and_evaluate_model(model_name=model_name, data_dir=data_dir, results_root=results_root)
         mean_row = df[df["fold"] == "mean"].iloc[0]
         compare_rows.append(
@@ -226,5 +236,8 @@ def run_all_baselines(data_dir: str = "data/processed/bcic_iv_2a", results_root:
     comp_df = pd.DataFrame(compare_rows)
     comp_path = Path(results_root) / "baseline_compare.csv"
     comp_df.to_csv(comp_path, index=False)
+
+    save_model_comparison_plots(results_root=results_root, model_names=ALL_MODELS)
+
     print(f"[baseline] comparison saved to {comp_path}")
     return comp_df
