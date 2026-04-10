@@ -4,7 +4,7 @@ My research on enhancing the generalization ability of EEG signal recognition mo
 ## research stages
 1. Data processing and baseline model establishment.
 2. Structural innovation and improvement on existing models.
-3. Advanced methods including domain adaptation and meta-learning.
+3. Advanced methods including domain adaptation or domain generalization.
 
 ## Raw dataset note
 The `data/raw` directory stores the original EEG signals from **BCIC-IV 2a**:
