@@ -22,7 +22,6 @@ Dried_flower/
 ├─ main.py
 ├─ configs/
 ├─ data/
-│  ├─ true_label/
 │  ├─ raw/
 │  ├─ processed/
 │  └─ splits/
