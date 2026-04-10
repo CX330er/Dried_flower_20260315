@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
+from scipy.signal import butter, filtfilt
 
 import mne
 import numpy as np
@@ -60,13 +61,13 @@ class NoCueEventsError(RuntimeError):
 class ProcessConfig:
     """Configuration for preprocessing BCIC-IV-2a data."""
 
-    l_freq: float = 5.0
-    h_freq: float = 30.0
+    l_freq: float = 4.0
+    h_freq: float = 40.0
     resample_sfreq: int = 250
     tmin: float = 2.0
     tmax: float = 6.0
     baseline: Tuple[float, float] | None = None
-
+    butter_order: int = 4
 
 def _normalize_annotation_desc(desc: str) -> str:
     """Extract digit-based code from annotation text when possible."""
@@ -166,6 +167,35 @@ def _drop_bad_trials(
 
     return np.asarray(kept_events, dtype=int), np.asarray(kept_labels, dtype=int)
 
+def _butter_bandpass_filter(
+    x: np.ndarray,
+    l_freq: float,
+    h_freq: float,
+    sfreq: float,
+    order: int,
+) -> np.ndarray:
+    """Apply zero-phase Butterworth band-pass filtering on the time axis.
+
+    Args:
+        x: EEG array with shape [B, C, T].
+    """
+    nyquist = 0.5 * sfreq
+    low = l_freq / nyquist
+    high = h_freq / nyquist
+    if not (0 < low < high < 1):
+        raise ValueError(
+            f"Invalid band-pass range for Butterworth: l_freq={l_freq}, h_freq={h_freq}, sfreq={sfreq}."
+        )
+    b, a = butter(order, [low, high], btype="band")
+    return filtfilt(b, a, x, axis=-1).astype(np.float32, copy=False)
+
+
+def _zscore_per_trial_channel(x: np.ndarray) -> np.ndarray:
+    """Z-score normalize each (trial, channel) sequence along time axis."""
+    mean = x.mean(axis=-1, keepdims=True)
+    std = x.std(axis=-1, keepdims=True)
+    std = np.where(std < 1e-6, 1.0, std)
+    return ((x - mean) / std).astype(np.float32, copy=False)
 
 def preprocess_one_file(
     file_path: Path,
@@ -186,7 +216,6 @@ def preprocess_one_file(
             f"Expected 22 EEG channels after selection, got {len(raw.ch_names)} in {file_path.name}."
         )
 
-    raw.filter(config.l_freq, config.h_freq, fir_design="firwin", verbose="ERROR")
     raw.resample(config.resample_sfreq, npad="auto", verbose="ERROR")
 
     cue_events, cue_labels = _extract_cue_events(raw)
@@ -214,15 +243,25 @@ def preprocess_one_file(
         verbose="ERROR",
     )
 
-    x = epochs.get_data(copy=True).astype(np.float32)
+    x = epochs.get_data(copy=True).astype(np.float32)  # [B, C, T]
+    x = _butter_bandpass_filter(
+        x,
+        l_freq=config.l_freq,
+        h_freq=config.h_freq,
+        sfreq=float(config.resample_sfreq),
+        order=config.butter_order,
+    )
+    x = _zscore_per_trial_channel(x)
+    x = np.expand_dims(x, axis=1)  # [B, 1, C, T]
     y = (epochs.events[:, 2] - 1).astype(np.int64)
 
     meta = {
         "file": file_path.name,
         "n_trials": int(x.shape[0]),
-        "n_channels": int(x.shape[1]),
-        "n_times": int(x.shape[2]),
+        "n_channels": int(x.shape[2]),
+        "n_times": int(x.shape[3]),
         "sfreq": int(config.resample_sfreq),
+        "shape": [int(v) for v in x.shape],
     }
     return x, y, meta
 

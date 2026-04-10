@@ -46,6 +46,10 @@ def _read_subject_npz(path: Path) -> Tuple[np.ndarray, np.ndarray]:
     x_key = "x" if "x" in d.files else "X"
     y_key = "y" if "y" in d.files else "Y"
     x = d[x_key]
+    if x.ndim == 4 and x.shape[1] == 1:
+        x = x[:, 0, :, :]
+    if x.ndim != 3:
+        raise ValueError(f"Expected x shape [N, C, T] or [N, 1, C, T], got {x.shape} in {path}")
     y = d[y_key]
     if y.ndim > 1:
         y = y.squeeze()

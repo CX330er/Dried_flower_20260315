@@ -12,8 +12,13 @@ import argparse
 import json
 from pathlib import Path
 from typing import Dict, List
-
+import shutil
+import sys
 import numpy as np
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from datasets.bcic_iv_2a_reader import (
     DEFAULT_REJECT_MARKERS,
@@ -39,11 +44,17 @@ def parse_args() -> argparse.Namespace:
         default="data/processed/bcic_iv_2a",
         help="Directory to save processed .npz and stats report",
     )
-    parser.add_argument("--l-freq", type=float, default=5.0)
-    parser.add_argument("--h-freq", type=float, default=30.0)
+    parser.add_argument("--l-freq", type=float, default=4.0)
+    parser.add_argument("--h-freq", type=float, default=40.0)
     parser.add_argument("--sfreq", type=int, default=250)
     parser.add_argument("--tmin", type=float, default=2.0)
     parser.add_argument("--tmax", type=float, default=6.0)
+    parser.add_argument("--butter-order", type=int, default=4)
+    parser.add_argument(
+        "--replace-out-dir",
+        action="store_true",
+        help="If set, delete existing out-dir before writing newly processed files.",
+    )
     return parser.parse_args()
 
 
@@ -51,6 +62,9 @@ def main() -> None:
     args = parse_args()
     raw_dir = Path(args.raw_dir)
     out_dir = Path(args.out_dir)
+
+    if args.replace_out_dir and out_dir.exists():
+        shutil.rmtree(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     config = ProcessConfig(
@@ -60,6 +74,7 @@ def main() -> None:
         tmin=args.tmin,
         tmax=args.tmax,
         baseline=None,
+        butter_order=args.butter_order,
     )
 
     all_files = iter_raw_files(raw_dir)
@@ -73,7 +88,9 @@ def main() -> None:
             "resample_sfreq": config.resample_sfreq,
             "tmin": config.tmin,
             "tmax": config.tmax,
+            "butter_order": config.butter_order,
             "reject_markers": sorted(DEFAULT_REJECT_MARKERS),
+            "target_shape": "B x 1 x C x T",
         },
         "files": [],
         "skipped_files": [],
