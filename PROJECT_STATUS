@@ -56,6 +56,13 @@ And I have completed the baseline model part pf Stage 1.2, which include the fol
 1.Establishing the baseline model :ShallowConvNet, DeepConvNet and EEGNet
 2.trainning and testing the ShallowConvNet, DeepConvNet and EEGNet by LOSO task and input the results
 
+2026.4.10
+1. Establish models capable of processing previous data: FBCNet and MSFBCNN
+
+2.The task involves four-class motor imagery, where relevant parameters of each baseline model are saved, the training process is visualized, relevant evaluation metrics are selected, and performance metrics are visualized
+
+3.I need you to not only save the performance results of the model test but also visualize them
+
 ## next goal：
-Make innovative modifications and innovations to EEGNet in terms of its structure to enhance its cross-subject generalization performance (LOSO task)
+
 
