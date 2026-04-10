@@ -58,8 +58,16 @@ Processed per-subject files are expected at:
 - `data/processed/bcic_iv_2a/*.npz`
 
 Each`.npz`contains:
--`x`or`X`:EEG trials with shape `[N, 22, T]`
+-`x`or`X`:EEG trials with shape `[N, 1, 22, T]` after preprocessing (training loader also supports legacy `[N, 22, T]`)
 -`y`or`Y`:labels in `{0, 1, 2, 3}`
+
+Preprocessing (current):
+- retain 22 EEG channels
+- map motor imagery events 769/770/771/772 -> labels 0/1/2/3
+- drop bad trials by reject markers
+- epoch window: 2s to 6s
+- Butterworth band-pass filtering: 4-40Hz
+- z-score normalization
 
 ## Run training
 Train all baselines:
