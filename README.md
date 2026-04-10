@@ -31,7 +31,8 @@ Dried_flower/
 ├─ utils/
 ├─ scripts/
 ├─ results/
-└─ notebooks/
+├─notebooks/
+└─ main.py
 ```
 
 ## Stage 1.2 baseline scope
