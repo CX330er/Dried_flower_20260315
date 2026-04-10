@@ -40,6 +40,8 @@ This repository now contains three baseline models for four-class motor imagery 
 - `ShallowConvNet`
 - `DeepConvNet`
 - `EEGNet`
+- `FBCNet`
+- `MSFBCNN`
 
 Shared training setup:
 -LOSO(Leave-One-Subject-Out)across`.npz`subjects.
