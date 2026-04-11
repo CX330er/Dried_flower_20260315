@@ -17,6 +17,7 @@ from models.eegnet import EEGNet
 from models.fbcnet import FBCNet
 from models.msfbcnn import MSFBCNN
 from models.shallowconvnet import ShallowConvNet
+from models.eegnet_fsfe import EEGNetFSFE
 from utils.metrics import (
     compute_metrics,
     save_confusion_matrix,
@@ -31,6 +32,7 @@ MODEL_REGISTRY = {
     "EEGNet": EEGNet,
     "FBCNet": FBCNet,
     "MSFBCNN": MSFBCNN,
+    "EEGNetFSFE": EEGNetFSFE,
 }
 
 ALL_MODELS = ["ShallowConvNet", "DeepConvNet", "EEGNet", "FBCNet", "MSFBCNN"]
