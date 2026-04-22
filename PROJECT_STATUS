@@ -1,9 +1,7 @@
 ## Instructions for executing the current project
 
 ## current stage task：
-1.The first part of the structural modification applied to EEGNet—termed the "Frequency-Stable Front-end"—serves to replace EEGNet's initial temporal convolution layer. Specifically, this is implemented using a set of time-domain filter kernels endowed with explicit frequency semantics. For instance, one might configure F1 = 8 one-dimensional kernels, with each kernel corresponding to a specific MI-relevant sub-band (e.g., 4–8 Hz, 8–12 Hz, 12–16 Hz, 16–20 Hz, 20–24 Hz, 24–28 Hz, 28–32 Hz, and 32–40 Hz). Each kernel is assigned a length of L = 31 or L = 63. The convolutional kernels take the form of cosine- or sinc-style bandpass filters with fixed center frequencies; that is, the kernel parameters are restricted to learning only the amplitude ($a_k$) and an optional bandwidth ($b_k$), while the center frequency ($f_k$) remains fixed or is permitted only within a narrow range of fine-tuning. This design ensures that the model prioritizes the extraction of $\mu$ and $\beta$ rhythms—which tend to be relatively stable across different subjects—rather than freely fitting subject-specific noise. Following the convolution, the output takes the shape $F_t \in B \times F1 \times C \times T'$, which is then passed through a Batch Normalization layer followed by an ELU activation function.
-2.Debugging and Optimization, Part 1: Stable Frequency Bands
-3.It is necessary to conduct an interpretability and principle-based analysis of the work completed thus far—specifically regarding the subdivision of sub-bands.
+
 
 ## Some Notes
 1.The data used is the currently processed data, which consists of data from 9 subjects in the format of .npz files, located in the path "D:\PycharmProjects\Dried_Flower\scripts\data\processed\bcic_iv_2a". It only utilizes labeled training samples.
@@ -63,6 +61,10 @@ And I have completed the baseline model part pf Stage 1.2, which include the fol
 
 2026.4.10
 1.The data processing was modified and re-executed.
+
+2026.4.13
+1.The construction of the first layer—the stable-frequency front-end—of the model has been completed. This front-end primarily extracts time-domain features from the sub-bands of the MI-EEG data.
+2.Furthermore, the interpretability analysis of the first part has been completed.
 
 ## next goal：
 Part II: Implementing Structural Modifications to EEGNet
