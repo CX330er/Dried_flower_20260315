@@ -1,6 +1,101 @@
 import torch
 from torch import nn
 
+class LightweightSharedSpatialPrior(nn.Module):
+    """Shared spatial prior module for 22-channel MI EEG.
+
+    Build regional depthwise spatial features for:
+    - Left sensorimotor region
+    - Right sensorimotor region
+    - Midline region
+    - Global region
+
+    Then explicitly construct:
+    Fsum = FL + FR
+    Fdiff = FL - FR
+    Fshared = Concat(Fsum, Fdiff, FM, FG)
+    and apply 1x1 pointwise fusion to obtain Ffuse.
+    """
+
+    # Canonical BCIC-IV-2a 22-channel order used in this project.
+    #
+    # Note:
+    # - BCIC-IV-2a uses a mixed montage containing classic 10-20 labels
+    #   (e.g., Fz/Cz/Pz/FC3/C3/CP3...) and intermediate labels often
+    #   associated with 10-10 spacing (e.g., FC1/FC2/C1/C2/CP1/CP2).
+    # - The left/right/midline regions below are intentionally defined as
+    #   physiologically motivated subsets for MI priors, not a partition of
+    #   all 22 channels. Remaining channels are still modeled through FG.
+    CHANNEL_NAMES = (
+        "Fz",
+        "FC3",
+        "FC1",
+        "FCz",
+        "FC2",
+        "FC4",
+        "C5",
+        "C3",
+        "C1",
+        "Cz",
+        "C2",
+        "C4",
+        "C6",
+        "CP3",
+        "CP1",
+        "CPz",
+        "CP2",
+        "CP4",
+        "P1",
+        "Pz",
+        "P2",
+        "POz",
+    )
+
+    def __init__(self, in_filters: int, out_filters: int, n_channels: int = 22):
+        super().__init__()
+        if n_channels != 22:
+            raise ValueError(
+                "LightweightSharedSpatialPrior currently requires n_channels=22 "
+                "to match fixed 10-20 topology region definitions."
+            )
+
+        name_to_idx = {name: idx for idx, name in enumerate(self.CHANNEL_NAMES)}
+        left_idx = [name_to_idx[ch] for ch in ("FC3", "C3", "CP3", "FC1", "C1", "CP1")]
+        right_idx = [name_to_idx[ch] for ch in ("FC4", "C4", "CP4", "FC2", "C2", "CP2")]
+        mid_idx = [name_to_idx[ch] for ch in ("FCz", "Cz", "CPz")]
+        # FG uses all channels to capture complementary/global information from
+        # channels that are outside L/R/M subsets (e.g., Fz, C5/C6, P1/P2/POz...).
+        global_idx = list(range(n_channels))
+
+        self.register_buffer("left_idx", torch.tensor(left_idx, dtype=torch.long), persistent=False)
+        self.register_buffer("right_idx", torch.tensor(right_idx, dtype=torch.long), persistent=False)
+        self.register_buffer("mid_idx", torch.tensor(mid_idx, dtype=torch.long), persistent=False)
+        self.register_buffer("global_idx", torch.tensor(global_idx, dtype=torch.long), persistent=False)
+
+        # Region-wise depthwise spatial convolution (kernel height == region channel count).
+        self.left_spatial = nn.Conv2d(in_filters, in_filters, kernel_size=(len(left_idx), 1), groups=in_filters, bias=False)
+        self.right_spatial = nn.Conv2d(in_filters, in_filters, kernel_size=(len(right_idx), 1), groups=in_filters, bias=False)
+        self.mid_spatial = nn.Conv2d(in_filters, in_filters, kernel_size=(len(mid_idx), 1), groups=in_filters, bias=False)
+        self.global_spatial = nn.Conv2d(in_filters, in_filters, kernel_size=(len(global_idx), 1), groups=in_filters, bias=False)
+
+        # Pointwise fusion after concatenating Fsum/Fdiff/FM/FG.
+        self.pointwise_fuse = nn.Conv2d(4 * in_filters, out_filters, kernel_size=(1, 1), bias=False)
+
+    def _region_depthwise(self, x: torch.Tensor, region_idx: torch.Tensor, conv: nn.Module) -> torch.Tensor:
+        x_region = torch.index_select(x, dim=2, index=region_idx)
+        return conv(x_region)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        fl = self._region_depthwise(x, self.left_idx, self.left_spatial)
+        fr = self._region_depthwise(x, self.right_idx, self.right_spatial)
+        fm = self._region_depthwise(x, self.mid_idx, self.mid_spatial)
+        fg = self._region_depthwise(x, self.global_idx, self.global_spatial)
+
+        f_sum = fl + fr
+        f_diff = fl - fr
+        f_shared = torch.cat([f_sum, f_diff, fm, fg], dim=1)
+        f_fuse = self.pointwise_fuse(f_shared)
+        return f_fuse
 
 class FrequencyStableTemporalConv(nn.Module):
     """Temporal convolution with frequency-semantic band-pass kernels.
@@ -135,8 +230,15 @@ class EEGNetFSFE(nn.Module):
             nn.ELU(),
         )
 
-        self.block1_rest = nn.Sequential(
-            nn.Conv2d(f1, f2, kernel_size=(n_channels, 1), groups=f1, bias=False),
+        # Explicit stage-2 spatial prior module:
+        # FrequencyStableTemporalConv -> LightweightSharedSpatialPrior.
+        self.shared_spatial_prior = LightweightSharedSpatialPrior(
+            in_filters=f1,
+            out_filters=f2,
+            n_channels=n_channels,
+        )
+
+        self.post_spatial_block = nn.Sequential(
             nn.BatchNorm2d(f2),
             nn.ELU(),
             nn.AvgPool2d((1, 4)),
@@ -154,14 +256,18 @@ class EEGNetFSFE(nn.Module):
 
         with torch.no_grad():
             dummy = torch.zeros(1, 1, n_channels, input_time)
-            feat = self.block2(self.block1_rest(self.freq_stable_frontend(dummy)))
+            feat = self.freq_stable_frontend(dummy)
+            feat = self.shared_spatial_prior(feat)
+            feat = self.post_spatial_block(feat)
+            feat = self.block2(feat)
             flat_dim = feat.flatten(1).shape[1]
         self.classifier = nn.Linear(flat_dim, n_classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x.unsqueeze(1)
         x = self.freq_stable_frontend(x)
-        x = self.block1_rest(x)
+        x = self.shared_spatial_prior(x)
+        x = self.post_spatial_block(x)
         x = self.block2(x)
         x = torch.flatten(x, start_dim=1)
         return self.classifier(x)
