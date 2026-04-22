@@ -36,7 +36,7 @@ Dried_flower/
 ```
 
 ## Stage 1.2 baseline scope
-This repository now contains three baseline models for four-class motor imagery EEG classification:
+This repository now contains five baseline models for four-class motor imagery EEG classification:
 - `ShallowConvNet`
 - `DeepConvNet`
 - `EEGNet`
