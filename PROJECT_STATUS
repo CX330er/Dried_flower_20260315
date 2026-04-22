@@ -1,7 +1,8 @@
 ## Instructions for executing the current project
 
 ## current stage task：
-
+1.Complete the second-layer design for the modification of the EEGNet network architecture during Phase 1.
+2.
 
 ## Some Notes
 1.The data used is the currently processed data, which consists of data from 9 subjects in the format of .npz files, located in the path "D:\PycharmProjects\Dried_Flower\scripts\data\processed\bcic_iv_2a". It only utilizes labeled training samples.
