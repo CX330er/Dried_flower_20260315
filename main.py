@@ -4,23 +4,29 @@ from trainers.baseline_trainer import run_all_baselines, train_and_evaluate_mode
 
 DEFAULT_DATA_DIR = "data/processed/bcic_iv_2a"
 
+def _add_argument_once(parser: argparse.ArgumentParser, *name_or_flags, **kwargs):
+    """Avoid argparse duplicate-option crashes when local code has repeated flags."""
+    existing = set(parser._option_string_actions.keys())
+    option_flags = [flag for flag in name_or_flags if isinstance(flag, str) and flag.startswith("-")]
+    if any(flag in existing for flag in option_flags):
+        return
+    parser.add_argument(*name_or_flags, **kwargs)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="EEG baseline training entrypoint")
-    parser.add_argument("--model", type=str, default="all", choices=["all", "ShallowConvNet", "DeepConvNet", "EEGNet", "FBCNet", "MSFBCNN", "EEGNetFSFE"])
-    parser.add_argument("--data_dir", type=str, default=DEFAULT_DATA_DIR)
-    parser.add_argument("--results_root", type=str, default="results")
-    parser.add_argument("--aux_mode", type=str, default="none", choices=["none", "center", "coral"])
-    parser.add_argument("--lambda_aux", type=float, default=0.05)
-    parser.add_argument("--label_smoothing", type=float, default=0.1)
-    parser.add_argument("--disable_class_weights", action="store_true")
-    parser.add_argument("--disable_weighted_sampler", action="store_true")
-    parser.add_argument("--max_time_shift", type=int, default=25)
-    parser.add_argument("--noise_std", type=float, default=0.01)
-    parser.add_argument("--grad_clip_norm", type=float, default=1.0)
-    parser.add_argument("--aux_warmup_epochs", type=int, default=30)
-    parser.add_argument("--aux_mode", type=str, default="none", choices=["none", "center", "coral"])
-    parser.add_argument("--lambda_aux", type=float, default=0.05)
+    _add_argument_once(parser, "--model", type=str, default="all", choices=["all", "ShallowConvNet", "DeepConvNet", "EEGNet", "FBCNet", "MSFBCNN", "EEGNetFSFE"])
+    _add_argument_once(parser, "--data_dir", type=str, default=DEFAULT_DATA_DIR)
+    _add_argument_once(parser, "--results_root", type=str, default="results")
+    _add_argument_once(parser, "--aux_mode", type=str, default="none", choices=["none", "center", "coral"])
+    _add_argument_once(parser, "--lambda_aux", type=float, default=0.05)
+    _add_argument_once(parser, "--label_smoothing", type=float, default=0.1)
+    _add_argument_once(parser, "--disable_class_weights", action="store_true")
+    _add_argument_once(parser, "--disable_weighted_sampler", action="store_true")
+    _add_argument_once(parser, "--max_time_shift", type=int, default=25)
+    _add_argument_once(parser, "--noise_std", type=float, default=0.01)
+    _add_argument_once(parser, "--grad_clip_norm", type=float, default=1.0)
+    _add_argument_once(parser, "--aux_warmup_epochs", type=int, default=30)
     args = parser.parse_args()
 
     if args.model == "all":
