@@ -1,8 +1,8 @@
 ## Instructions for executing the current project
 
 ## current stage task：
-1.Complete the second-layer design for the modification of the EEGNet network architecture during Phase 2.
-2.Second-Layer Design: Lightweight Spatial Prior Module.Extracts universal spatial features characterized by an individual-shared nature.
+1.Complete the design of the third layer of the network
+2.Debug the network to improve its accuracy
 
 ## Some Notes
 1.The data used is the currently processed data, which consists of data from 9 subjects in the format of .npz files, located in the path "D:\PycharmProjects\Dried_Flower\scripts\data\processed\bcic_iv_2a". It only utilizes labeled training samples.
@@ -66,6 +66,10 @@ And I have completed the baseline model part pf Stage 1.2, which include the fol
 2026.4.13
 1.The construction of the first layer—the stable-frequency front-end—of the model has been completed. This front-end primarily extracts time-domain features from the sub-bands of the MI-EEG data.
 2.Furthermore, the interpretability analysis of the first part has been completed.
+
+2026.4.27
+1.Complete the second-layer design for the modification of the EEGNet network architecture during Phase 2.
+2.Second-Layer Design: Lightweight Spatial Prior Module.Extracts universal spatial features characterized by an individual-shared nature.
 
 ## next goal：
 Part II: Implementing Structural Modifications to EEGNet
