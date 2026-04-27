@@ -8,7 +8,8 @@ import numpy as np
 import torch
 from torch import nn
 from torch.optim import Adam
-from torch.utils.data import DataLoader
+from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.utils.data import DataLoader, WeightedRandomSampler
 from tqdm import tqdm
 
 from datasets.loso_npz import EEGDataset, build_loso_folds, load_subject_data, normalize_by_train_stats
@@ -53,68 +54,74 @@ class EarlyStopping:
         self.wait += 1
         return self.wait >= self.patience
 
-    class EEGSubjectDataset(EEGDataset):
-        def __init__(self, x: np.ndarray, y: np.ndarray, sid: np.ndarray):
-            super().__init__(x, y)
-            self.sid = torch.from_numpy(sid).long()
+class EEGSubjectDataset(EEGDataset):
+    def __init__(self, x: np.ndarray, y: np.ndarray, sid: np.ndarray):
+        super().__init__(x, y)
+        self.sid = torch.from_numpy(sid).long()
 
-        def __getitem__(self, idx: int):
-            xb, yb = super().__getitem__(idx)
-            return xb, yb, self.sid[idx]
+    def __getitem__(self, idx: int):
+        xb, yb = super().__getitem__(idx)
+        return xb, yb, self.sid[idx]
 
-    def _supervised_center_loss(features: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-        """Lightweight supervised center-style loss for cross-subject class aggregation."""
-        if features.ndim != 2:
-            raise ValueError(f"Expected features [B, D], got {tuple(features.shape)}")
 
-        unique_labels = labels.unique()
-        losses = []
-        for cls in unique_labels:
-            mask = labels == cls
-            cls_feats = features[mask]
-            if cls_feats.size(0) < 2:
-                continue
-            center = cls_feats.mean(dim=0, keepdim=True)
-            losses.append(((cls_feats - center) ** 2).mean())
+def _supervised_center_loss(features: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+    """Lightweight supervised center-style loss for cross-subject class aggregation."""
+    if features.ndim != 2:
+        raise ValueError(f"Expected features [B, D], got {tuple(features.shape)}")
 
-        if not losses:
-            return features.new_tensor(0.0)
-        return torch.stack(losses).mean()
+    unique_labels = labels.unique()
+    losses = []
+    for cls in unique_labels:
+        mask = labels == cls
+        cls_feats = features[mask]
+        if cls_feats.size(0) < 2:
+            continue
+        center = cls_feats.mean(dim=0, keepdim=True)
+        losses.append(((cls_feats - center) ** 2).mean())
 
-    def _subject_coral_loss(features: torch.Tensor, subject_ids: torch.Tensor) -> torch.Tensor:
-        """Invariance regularization among source subjects via pairwise CORAL covariance alignment."""
-        uniq_subjects = subject_ids.unique()
-        if uniq_subjects.numel() < 2:
-            return features.new_tensor(0.0)
+    if not losses:
+        return features.new_tensor(0.0)
+    return torch.stack(losses).mean()
 
-        covs = []
-        for sid in uniq_subjects:
-            mask = subject_ids == sid
-            sub_feats = features[mask]
-            if sub_feats.size(0) < 2:
-                continue
-            centered = sub_feats - sub_feats.mean(dim=0, keepdim=True)
-            cov = centered.T @ centered / max(sub_feats.size(0) - 1, 1)
-            covs.append(cov)
 
-        if len(covs) < 2:
-            return features.new_tensor(0.0)
+def _subject_coral_loss(features: torch.Tensor, subject_ids: torch.Tensor) -> torch.Tensor:
+    """Invariance regularization among source subjects via pairwise CORAL covariance alignment."""
+    uniq_subjects = subject_ids.unique()
+    if uniq_subjects.numel() < 2:
+        return features.new_tensor(0.0)
 
-        pair_losses = []
-        for i in range(len(covs)):
-            for j in range(i + 1, len(covs)):
-                pair_losses.append(((covs[i] - covs[j]) ** 2).mean())
-        return torch.stack(pair_losses).mean()
+    covs = []
+    for sid in uniq_subjects:
+        mask = subject_ids == sid
+        sub_feats = features[mask]
+        if sub_feats.size(0) < 2:
+            continue
+        centered = sub_feats - sub_feats.mean(dim=0, keepdim=True)
+        cov = centered.T @ centered / max(sub_feats.size(0) - 1, 1)
+        covs.append(cov)
 
-    def _run_epoch(
-            model,
-            loader,
-            criterion,
-            optimizer=None,
-            device="cpu",
-            aux_mode: str = "none",
-            lambda_aux: float = 0.0,
-    ):
+    if len(covs) < 2:
+        return features.new_tensor(0.0)
+
+    pair_losses = []
+    for i in range(len(covs)):
+        for j in range(i + 1, len(covs)):
+            pair_losses.append(((covs[i] - covs[j]) ** 2).mean())
+    return torch.stack(pair_losses).mean()
+
+
+def _run_epoch(
+    model,
+    loader,
+    criterion,
+    optimizer=None,
+    device="cpu",
+    aux_mode: str = "none",
+    lambda_aux: float = 0.0,
+    max_time_shift: int = 0,
+    noise_std: float = 0.0,
+    grad_clip_norm: float = 0.0,
+):
     train = optimizer is not None
     model.train() if train else model.eval()
 
@@ -130,6 +137,13 @@ class EarlyStopping:
                 sid = None
 
             xb, yb = xb.to(device), yb.to(device)
+
+            if train and max_time_shift > 0:
+                shift = int(np.random.randint(-max_time_shift, max_time_shift + 1))
+                if shift != 0:
+                    xb = torch.roll(xb, shifts=shift, dims=-1)
+            if train and noise_std > 0.0:
+                xb = xb + noise_std * torch.randn_like(xb)
 
             if aux_mode in {"center", "coral"}:
                 logits, features = model(xb, return_features=True)
@@ -149,6 +163,8 @@ class EarlyStopping:
             if train:
                 optimizer.zero_grad()
                 loss.backward()
+                if grad_clip_norm > 0.0:
+                    nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip_norm)
                 optimizer.step()
 
             total_loss += loss.item() * yb.size(0)
@@ -172,6 +188,13 @@ def train_and_evaluate_model(
     seed: int = 42,
     aux_mode: str = "none",
     lambda_aux: float = 0.05,
+    label_smoothing: float = 0.1,
+    use_class_weights: bool = True,
+    use_weighted_sampler: bool = True,
+    max_time_shift: int = 25,
+    noise_std: float = 0.01,
+    grad_clip_norm: float = 1.0,
+    aux_warmup_epochs: int = 30,
 ):
     set_seed(seed)
 
@@ -199,8 +222,16 @@ def train_and_evaluate_model(
             input_time=input_time,
         ).to(device)
 
-        criterion = nn.CrossEntropyLoss()
+        cls_weights = None
+        if use_class_weights:
+            bincount = np.bincount(fold.y_train, minlength=n_classes).astype(np.float32)
+            inv = 1.0 / np.clip(bincount, a_min=1.0, a_max=None)
+            cls_weights = (inv / inv.sum()) * float(n_classes)
+            cls_weights = torch.tensor(cls_weights, dtype=torch.float32, device=device)
+
+        criterion = nn.CrossEntropyLoss(weight=cls_weights, label_smoothing=label_smoothing)
         optimizer = Adam(model.parameters(), lr=lr)
+        scheduler = CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-5)
         early = EarlyStopping(patience=patience)
 
         if aux_mode in {"center", "coral"}:
@@ -212,7 +243,23 @@ def train_and_evaluate_model(
             train_dataset = EEGDataset(fold.x_train, fold.y_train)
             val_dataset = EEGDataset(fold.x_val, fold.y_val)
 
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+        sampler = None
+        if use_weighted_sampler:
+            class_counts = np.bincount(fold.y_train, minlength=n_classes).astype(np.float64)
+            class_counts = np.clip(class_counts, a_min=1.0, a_max=None)
+            sample_weights = 1.0 / class_counts[fold.y_train]
+            sampler = WeightedRandomSampler(
+                weights=torch.from_numpy(sample_weights).double(),
+                num_samples=len(sample_weights),
+                replacement=True,
+            )
+
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=batch_size,
+            shuffle=sampler is None,
+            sampler=sampler,
+        )
         val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
         test_loader = DataLoader(EEGDataset(fold.x_test, fold.y_test), batch_size=batch_size, shuffle=False)
 
@@ -225,6 +272,10 @@ def train_and_evaluate_model(
             leave=False,
         )
         for epoch_idx in epoch_bar:
+            lambda_epoch = lambda_aux
+            if aux_mode in {"center", "coral"} and aux_warmup_epochs > 0:
+                lambda_epoch = lambda_aux * min(1.0, float(epoch_idx + 1) / float(aux_warmup_epochs))
+
             tr_loss, tr_acc = _run_epoch(
                 model,
                 train_loader,
@@ -232,7 +283,10 @@ def train_and_evaluate_model(
                 optimizer=optimizer,
                 device=device,
                 aux_mode=aux_mode,
-                lambda_aux=lambda_aux,
+                lambda_aux=lambda_epoch,
+                max_time_shift=max_time_shift,
+                noise_std=noise_std,
+                grad_clip_norm=grad_clip_norm,
             )
             va_loss, va_acc = _run_epoch(
                 model,
@@ -241,8 +295,10 @@ def train_and_evaluate_model(
                 optimizer=None,
                 device=device,
                 aux_mode=aux_mode,
-                lambda_aux=lambda_aux,
+                lambda_aux=lambda_epoch,
             )
+
+            scheduler.step()
 
             history["train_loss"].append(tr_loss)
             history["val_loss"].append(va_loss)

@@ -269,7 +269,7 @@ class EEGNetFSFE(nn.Module):
             flat_dim = feat.flatten(1).shape[1]
         self.classifier = nn.Linear(flat_dim, n_classes)
 
-        def forward_features(self, x: torch.Tensor) -> torch.Tensor:
+    def forward_features(self, x: torch.Tensor) -> torch.Tensor:
         x = x.unsqueeze(1)
         x = self.freq_stable_frontend(x)
         x = self.shared_spatial_prior(x)
