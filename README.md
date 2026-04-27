@@ -52,6 +52,9 @@ Shared training setup:
 -Batch size:64
 -Loss:CrossEntropy
 -Early stopping:patience 50
+-Optional DG regularization for `EEGNetFSFE`: `L = Lcls + λ * Laux`, where `Laux` can be
+  - `center` (supervised center-style class aggregation across source subjects), or
+  - `coral` (source-subject feature covariance alignment for invariance).
 
 ## Data format assumptions
 Processed per-subject files are expected at:
@@ -78,6 +81,11 @@ python main.py --model all --data_dir data/processed/bcic_iv_2a --results_root r
 Train one model:
 ```bash
 python main.py --model EEGNet
+```
+Train `EEGNetFSFE` with lightweight DG regularization:
+```bash
+python main.py --model EEGNetFSFE --aux_mode center --lambda_aux 0.05
+python main.py --model EEGNetFSFE --aux_mode coral --lambda_aux 0.05
 ```
 
 ## Output files
