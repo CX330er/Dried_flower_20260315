@@ -201,8 +201,12 @@ class EEGNetFSFE(nn.Module):
         kernel_size: int = 63,
         sfreq: float = 250.0,
         center_tune_hz: float = 0.0,
+        dropout_rate: float = 0.35,
     ):
         super().__init__()
+        if not (0.25 <= dropout_rate <= 0.5):
+            raise ValueError("dropout_rate should be in [0.25, 0.5] for the lightweight EEGNet back-end.")
+
         bands = (
             (4.0, 8.0),
             (8.0, 12.0),
@@ -242,32 +246,44 @@ class EEGNetFSFE(nn.Module):
             nn.BatchNorm2d(f2),
             nn.ELU(),
             nn.AvgPool2d((1, 4)),
-            nn.Dropout(0.5),
+            nn.Dropout(dropout_rate),
         )
 
-        self.block2 = nn.Sequential(
+        # Third-layer design: EEGNet back-half style separable conv + avg pooling + dropout + ELU.
+        self.third_layer = nn.Sequential(
             nn.Conv2d(f2, f2, kernel_size=(1, 16), padding=(0, 8), groups=f2, bias=False),
             nn.Conv2d(f2, f2, kernel_size=(1, 1), bias=False),
             nn.BatchNorm2d(f2),
             nn.ELU(),
             nn.AvgPool2d((1, 8)),
-            nn.Dropout(0.5),
+            nn.Dropout(dropout_rate),
         )
+        self.flatten = nn.Flatten(start_dim=1)
 
         with torch.no_grad():
             dummy = torch.zeros(1, 1, n_channels, input_time)
             feat = self.freq_stable_frontend(dummy)
             feat = self.shared_spatial_prior(feat)
             feat = self.post_spatial_block(feat)
-            feat = self.block2(feat)
+            feat = self.third_layer(feat)
             flat_dim = feat.flatten(1).shape[1]
         self.classifier = nn.Linear(flat_dim, n_classes)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        def forward_features(self, x: torch.Tensor) -> torch.Tensor:
         x = x.unsqueeze(1)
         x = self.freq_stable_frontend(x)
         x = self.shared_spatial_prior(x)
         x = self.post_spatial_block(x)
-        x = self.block2(x)
-        x = torch.flatten(x, start_dim=1)
-        return self.classifier(x)
+        x = self.third_layer(x)
+        return self.flatten(x)
+
+    def forward(self, x: torch.Tensor, return_features: bool = False, return_probs: bool = False):
+        features = self.forward_features(x)
+        logits = self.classifier(features)
+        if return_features and return_probs:
+            return logits, features, torch.softmax(logits, dim=1)
+        if return_features:
+            return logits, features
+        if return_probs:
+            return torch.softmax(logits, dim=1)
+        return logits

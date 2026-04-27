@@ -27,6 +27,9 @@ class FoldData:
     y_val: np.ndarray
     x_test: np.ndarray
     y_test: np.ndarray
+    sid_train: np.ndarray | None = None
+    sid_val: np.ndarray | None = None
+    sid_test: np.ndarray | None = None
 
 
 class EEGDataset(Dataset):
@@ -122,16 +125,18 @@ def build_loso_folds(
     for test_sid in subjects:
         x_test, y_test = subject_data[test_sid]
 
-        train_x_list, train_y_list = [], []
-        for sid in subjects:
+        train_x_list, train_y_list, train_sid_list = [], [], []
+        for sid_idx, sid in enumerate(subjects):
             if sid == test_sid:
                 continue
             x, y = subject_data[sid]
             train_x_list.append(x)
             train_y_list.append(y)
+            train_sid_list.append(np.full((len(y),), sid_idx, dtype=np.int64))
 
         x_train_all = np.concatenate(train_x_list, axis=0)
         y_train_all = np.concatenate(train_y_list, axis=0)
+        sid_train_all = np.concatenate(train_sid_list, axis=0)
 
         idx = np.arange(len(y_train_all))
         train_idx, val_idx = train_test_split(
@@ -141,10 +146,13 @@ def build_loso_folds(
         fold_data = FoldData(
             x_train=x_train_all[train_idx],
             y_train=y_train_all[train_idx],
+            sid_train=sid_train_all[train_idx],
             x_val=x_train_all[val_idx],
             y_val=y_train_all[val_idx],
+            sid_val=sid_train_all[val_idx],
             x_test=x_test,
             y_test=y_test,
+            sid_test=np.full((len(y_test),), subjects.index(test_sid), dtype=np.int64),
         )
         folds.append((test_sid, fold_data))
     return folds
@@ -158,8 +166,11 @@ def normalize_by_train_stats(fold: FoldData) -> FoldData:
     return FoldData(
         x_train=(fold.x_train - mean) / std,
         y_train=fold.y_train,
+        sid_train=fold.sid_train,
         x_val=(fold.x_val - mean) / std,
         y_val=fold.y_val,
+        sid_val=fold.sid_val,
         x_test=(fold.x_test - mean) / std,
         y_test=fold.y_test,
+        sid_test=fold.sid_test,
     )

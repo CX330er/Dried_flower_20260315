@@ -53,18 +53,98 @@ class EarlyStopping:
         self.wait += 1
         return self.wait >= self.patience
 
+    class EEGSubjectDataset(EEGDataset):
+        def __init__(self, x: np.ndarray, y: np.ndarray, sid: np.ndarray):
+            super().__init__(x, y)
+            self.sid = torch.from_numpy(sid).long()
 
-def _run_epoch(model, loader, criterion, optimizer=None, device="cpu"):
+        def __getitem__(self, idx: int):
+            xb, yb = super().__getitem__(idx)
+            return xb, yb, self.sid[idx]
+
+    def _supervised_center_loss(features: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        """Lightweight supervised center-style loss for cross-subject class aggregation."""
+        if features.ndim != 2:
+            raise ValueError(f"Expected features [B, D], got {tuple(features.shape)}")
+
+        unique_labels = labels.unique()
+        losses = []
+        for cls in unique_labels:
+            mask = labels == cls
+            cls_feats = features[mask]
+            if cls_feats.size(0) < 2:
+                continue
+            center = cls_feats.mean(dim=0, keepdim=True)
+            losses.append(((cls_feats - center) ** 2).mean())
+
+        if not losses:
+            return features.new_tensor(0.0)
+        return torch.stack(losses).mean()
+
+    def _subject_coral_loss(features: torch.Tensor, subject_ids: torch.Tensor) -> torch.Tensor:
+        """Invariance regularization among source subjects via pairwise CORAL covariance alignment."""
+        uniq_subjects = subject_ids.unique()
+        if uniq_subjects.numel() < 2:
+            return features.new_tensor(0.0)
+
+        covs = []
+        for sid in uniq_subjects:
+            mask = subject_ids == sid
+            sub_feats = features[mask]
+            if sub_feats.size(0) < 2:
+                continue
+            centered = sub_feats - sub_feats.mean(dim=0, keepdim=True)
+            cov = centered.T @ centered / max(sub_feats.size(0) - 1, 1)
+            covs.append(cov)
+
+        if len(covs) < 2:
+            return features.new_tensor(0.0)
+
+        pair_losses = []
+        for i in range(len(covs)):
+            for j in range(i + 1, len(covs)):
+                pair_losses.append(((covs[i] - covs[j]) ** 2).mean())
+        return torch.stack(pair_losses).mean()
+
+    def _run_epoch(
+            model,
+            loader,
+            criterion,
+            optimizer=None,
+            device="cpu",
+            aux_mode: str = "none",
+            lambda_aux: float = 0.0,
+    ):
     train = optimizer is not None
     model.train() if train else model.eval()
 
     total_loss, correct, total = 0.0, 0, 0
 
     with torch.set_grad_enabled(train):
-        for xb, yb in loader:
+        for batch in loader:
+            if len(batch) == 3:
+                xb, yb, sid = batch
+                sid = sid.to(device)
+            else:
+                xb, yb = batch
+                sid = None
+
             xb, yb = xb.to(device), yb.to(device)
-            logits = model(xb)
-            loss = criterion(logits, yb)
+
+            if aux_mode in {"center", "coral"}:
+                logits, features = model(xb, return_features=True)
+            else:
+                logits = model(xb)
+                features = None
+
+            cls_loss = criterion(logits, yb)
+            aux_loss = cls_loss.new_tensor(0.0)
+            if aux_mode == "center" and features is not None:
+                aux_loss = _supervised_center_loss(features, yb)
+            elif aux_mode == "coral" and features is not None and sid is not None:
+                aux_loss = _subject_coral_loss(features, sid)
+
+            loss = cls_loss + lambda_aux * aux_loss
 
             if train:
                 optimizer.zero_grad()
@@ -90,6 +170,8 @@ def train_and_evaluate_model(
     batch_size: int = 64,
     patience: int = 50,
     seed: int = 42,
+    aux_mode: str = "none",
+    lambda_aux: float = 0.05,
 ):
     set_seed(seed)
 
@@ -121,8 +203,17 @@ def train_and_evaluate_model(
         optimizer = Adam(model.parameters(), lr=lr)
         early = EarlyStopping(patience=patience)
 
-        train_loader = DataLoader(EEGDataset(fold.x_train, fold.y_train), batch_size=batch_size, shuffle=True)
-        val_loader = DataLoader(EEGDataset(fold.x_val, fold.y_val), batch_size=batch_size, shuffle=False)
+        if aux_mode in {"center", "coral"}:
+            if fold.sid_train is None:
+                raise ValueError("sid_train is required when aux_mode is center/coral.")
+            train_dataset = EEGSubjectDataset(fold.x_train, fold.y_train, fold.sid_train)
+            val_dataset = EEGSubjectDataset(fold.x_val, fold.y_val, fold.sid_val)
+        else:
+            train_dataset = EEGDataset(fold.x_train, fold.y_train)
+            val_dataset = EEGDataset(fold.x_val, fold.y_val)
+
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
         test_loader = DataLoader(EEGDataset(fold.x_test, fold.y_test), batch_size=batch_size, shuffle=False)
 
         history = {"train_loss": [], "val_loss": [], "train_acc": [], "val_acc": []}
@@ -134,8 +225,24 @@ def train_and_evaluate_model(
             leave=False,
         )
         for epoch_idx in epoch_bar:
-            tr_loss, tr_acc = _run_epoch(model, train_loader, criterion, optimizer=optimizer, device=device)
-            va_loss, va_acc = _run_epoch(model, val_loader, criterion, optimizer=None, device=device)
+            tr_loss, tr_acc = _run_epoch(
+                model,
+                train_loader,
+                criterion,
+                optimizer=optimizer,
+                device=device,
+                aux_mode=aux_mode,
+                lambda_aux=lambda_aux,
+            )
+            va_loss, va_acc = _run_epoch(
+                model,
+                val_loader,
+                criterion,
+                optimizer=None,
+                device=device,
+                aux_mode=aux_mode,
+                lambda_aux=lambda_aux,
+            )
 
             history["train_loss"].append(tr_loss)
             history["val_loss"].append(va_loss)
