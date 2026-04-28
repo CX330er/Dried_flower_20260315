@@ -84,6 +84,22 @@ python main.py --model EEGNet
 ```
 Train `EEGNetFSFE` with lightweight DG regularization:
 ```bash
+python main.py --model EEGNetFSFE --aux_mode center --lambda_aux 0.02
+python main.py --model EEGNetFSFE --aux_mode coral --lambda_aux 0.02
+```
+
+Run baseline diagnostics (label alignment / overfit-small-sample / protocol comparison / curves):
+```bash
+python scripts/validate_baseline_debug.py --model EEGNet --data_dir data/processed/bcic_iv_2a --results_root results/debug --run_loso
+```
+
+Recommended stronger recipe for cross-subject generalization (label smoothing + class balancing + temporal augmentation + warmup):
+```bash
+python main.py --model EEGNetFSFE --aux_mode center --lambda_aux 0.02 --label_smoothing 0.1 --max_time_shift 25 --noise_std 0.01 --aux_warmup_epochs 30
+```
+
+Train `EEGNetFSFE` with lightweight DG regularization:
+```bash
 python main.py --model EEGNetFSFE --aux_mode center --lambda_aux 0.05
 python main.py --model EEGNetFSFE --aux_mode coral --lambda_aux 0.05
 ```
