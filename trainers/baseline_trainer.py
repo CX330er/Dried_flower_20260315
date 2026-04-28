@@ -127,6 +127,10 @@ def _run_epoch(
 
     total_loss, correct, total = 0.0, 0, 0
 
+    # Auxiliary DG regularization is optimization-only and should not affect
+    # validation/test objective used for model selection.
+    effective_lambda_aux = lambda_aux if train else 0.0
+
     with torch.set_grad_enabled(train):
         for batch in loader:
             if len(batch) == 3:
@@ -187,7 +191,7 @@ def train_and_evaluate_model(
     patience: int = 50,
     seed: int = 42,
     aux_mode: str = "none",
-    lambda_aux: float = 0.05,
+    lambda_aux: float = 0.02,
     label_smoothing: float = 0.1,
     use_class_weights: bool = True,
     use_weighted_sampler: bool = True,
@@ -295,7 +299,7 @@ def train_and_evaluate_model(
                 optimizer=None,
                 device=device,
                 aux_mode=aux_mode,
-                lambda_aux=lambda_epoch,
+                lambda_aux=0.0,
             )
 
             scheduler.step()
