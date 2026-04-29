@@ -1,0 +1,176 @@
+{
+  "label_alignment": {
+    "per_subject": {
+      "A01T": {
+        "n_trials": 280,
+        "label_set": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "label_distribution": {
+          "0": 69,
+          "1": 71,
+          "2": 71,
+          "3": 69
+        },
+        "is_label_range_valid": true
+      },
+      "A02T": {
+        "n_trials": 280,
+        "label_set": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "label_distribution": {
+          "0": 70,
+          "1": 71,
+          "2": 67,
+          "3": 72
+        },
+        "is_label_range_valid": true
+      },
+      "A03T": {
+        "n_trials": 281,
+        "label_set": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "label_distribution": {
+          "0": 71,
+          "1": 70,
+          "2": 69,
+          "3": 71
+        },
+        "is_label_range_valid": true
+      },
+      "A04T": {
+        "n_trials": 276,
+        "label_set": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "label_distribution": {
+          "0": 67,
+          "1": 69,
+          "2": 70,
+          "3": 70
+        },
+        "is_label_range_valid": true
+      },
+      "A05T": {
+        "n_trials": 277,
+        "label_set": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "label_distribution": {
+          "0": 68,
+          "1": 70,
+          "2": 70,
+          "3": 69
+        },
+        "is_label_range_valid": true
+      },
+      "A06T": {
+        "n_trials": 259,
+        "label_set": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "label_distribution": {
+          "0": 65,
+          "1": 63,
+          "2": 66,
+          "3": 65
+        },
+        "is_label_range_valid": true
+      },
+      "A07T": {
+        "n_trials": 279,
+        "label_set": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "label_distribution": {
+          "0": 68,
+          "1": 71,
+          "2": 69,
+          "3": 71
+        },
+        "is_label_range_valid": true
+      },
+      "A08T": {
+        "n_trials": 278,
+        "label_set": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "label_distribution": {
+          "0": 70,
+          "1": 69,
+          "2": 69,
+          "3": 70
+        },
+        "is_label_range_valid": true
+      },
+      "A09T": {
+        "n_trials": 258,
+        "label_set": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "label_distribution": {
+          "0": 58,
+          "1": 67,
+          "2": 68,
+          "3": 65
+        },
+        "is_label_range_valid": true
+      }
+    },
+    "linear_probe_true_label_acc": 0.25371120107962214,
+    "linear_probe_shifted_label_acc": 0.22941970310391363,
+    "alignment_warning": false
+  },
+  "overfit_small_sample": {
+    "subject": "A01T",
+    "n_trials": 40,
+    "final_train_acc": 0.925,
+    "final_train_loss": 0.5468340277671814,
+    "can_overfit_95": false
+  },
+  "protocols": {
+    "subject_dependent_mean_acc": 0.3458941156309578,
+    "mixed_subject_random_split_acc": 0.3340080971659919,
+    "loso_mean_acc": 0.3264589511552582,
+    "loso_fold_acc": [
+      0.42142857142857143,
+      0.25357142857142856,
+      0.41637010676156583,
+      0.31521739130434784,
+      0.2490974729241877,
+      0.30115830115830117,
+      0.32616487455197135,
+      0.3489208633093525,
+      0.3062015503875969
+    ]
+  }
+}
