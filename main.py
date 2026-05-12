@@ -1,6 +1,6 @@
 import argparse
 
-from trainers.baseline_trainer import run_all_baselines, train_and_evaluate_model
+from trainers.baseline_trainer import PROTOCOL_CHOICES, run_all_baselines, train_and_evaluate_model
 
 DEFAULT_DATA_DIR = "data/processed/bcic_iv_2a"
 
@@ -18,8 +18,9 @@ if __name__ == "__main__":
     _add_argument_once(parser, "--model", type=str, default="all", choices=["all", "ShallowConvNet", "DeepConvNet", "EEGNet", "FBCNet", "MSFBCNN", "EEGNetFSFE"])
     _add_argument_once(parser, "--data_dir", type=str, default=DEFAULT_DATA_DIR)
     _add_argument_once(parser, "--results_root", type=str, default="results")
+    _add_argument_once(parser, "--protocol", type=str, default="loso_t", choices=PROTOCOL_CHOICES)
     _add_argument_once(parser, "--aux_mode", type=str, default="none", choices=["none", "center", "coral"])
-    _add_argument_once(parser, "--lambda_aux", type=float, default=0.05)
+    _add_argument_once(parser, "--lambda_aux", type=float, default=0.02)
     _add_argument_once(parser, "--label_smoothing", type=float, default=0.1)
     _add_argument_once(parser, "--disable_class_weights", action="store_true")
     _add_argument_once(parser, "--disable_weighted_sampler", action="store_true")
@@ -30,12 +31,13 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.model == "all":
-        run_all_baselines(data_dir=args.data_dir, results_root=args.results_root)
+        run_all_baselines(data_dir=args.data_dir, results_root=args.results_root, protocol=args.protocol)
     else:
         train_and_evaluate_model(
             model_name=args.model,
             data_dir=args.data_dir,
             results_root=args.results_root,
+            protocol=args.protocol,
             aux_mode=args.aux_mode,
             lambda_aux=args.lambda_aux,
             label_smoothing=args.label_smoothing,

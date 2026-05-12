@@ -1,117 +1,111 @@
-# Dried_flower_20260315
-My research on enhancing the generalization ability of EEG signal recognition models
+# Dried Flower EEG Project
 
-## research stages
-1. Phase 1：Data processing and baseline model establishment.
-2. Phase 2：Structural innovation and improvement on existing models.
-3. Phase 3：Advanced methods including domain adaptation or domain generalization.
+Research code for BCIC-IV-2a four-class motor imagery EEG recognition, with a focus on subject-dependent baselines and subject-independent cross-subject generalization.
 
-## Raw dataset note
-The `data/raw` directory stores the original EEG signals from **BCIC-IV 2a**:
-- 9 subjects.
-- Four-class motor imagery classification.
-- 22 EEG channels and 3 EOG channels.
-- Each subject includes training session **T** and evaluation session **E** such as 'A01T' and 'A01E'.
-- Files are stored in `.gdf` format.
+## Current Data Setting
 
-## Project structure：
+- Dataset: BCIC-IV-2a.
+- Channels: 22 EEG channels.
+- Classes: 4 motor imagery classes, mapped to labels `0, 1, 2, 3`.
+- Current preprocessing band: `5-30Hz`.
+- Current selected time window: `0.5-4.5s`.
+- Processed trial shape: `[N, 1, 22, T]`; loaders also accept legacy `[N, 22, T]`.
+
+Training sessions `A01T-A09T` use event labels `769/770/771/772`. Evaluation sessions `A01E-A09E` use cue event `783` plus official labels from `data/raw/true_labels/AxxE.mat`.
+
+## Naming Convention
+
+Processed data directories should include session scope, window, and band:
+
 ```text
-Dried_flower/
-├─ .gitignore
-├─ environment.yml
-├─ main.py
-├─ configs/
-├─ data/
-│  ├─ raw/
-│  ├─ processed/
-│  └─ splits/
-├─ datasets/
-├─ models/
-├─ trainers/
-├─ utils/
-├─ scripts/
-├─ results/
-├─notebooks/
-└─ main.py
+data/processed/bcic_iv_2a_train_only_window_0p5_4p5_band_5_30hz
+data/processed/bcic_iv_2a_train_eval_window_0p5_4p5_band_5_30hz
 ```
 
-## Stage 1.2 baseline scope
-This repository now contains five baseline models for four-class motor imagery EEG classification:
-- `ShallowConvNet`
-- `DeepConvNet`
-- `EEGNet`
-- `FBCNet`
-- `MSFBCNN`
+Result directories should include model, task/protocol, and data setting:
 
-Shared training setup:
--LOSO(Leave-One-Subject-Out)across`.npz`subjects.
--validation split in training subjects with fixed seed.
--Epochs:300
--Optimizer:Adam
--Learning rate:1e-3
--Batch size:64
--Loss:CrossEntropy
--Early stopping:patience 50
--Optional DG regularization for `EEGNetFSFE`: `L = Lcls + λ * Laux`, where `Laux` can be
-  - `center` (supervised center-style class aggregation across source subjects), or
-  - `coral` (source-subject feature covariance alignment for invariance).
-
-## Data format assumptions
-Processed per-subject files are expected at:
-- `data/processed/bcic_iv_2a/*.npz`
-
-Each`.npz`contains:
--`x`or`X`:EEG trials with shape `[N, 1, 22, T]` after preprocessing (training loader also supports legacy `[N, 22, T]`)
--`y`or`Y`:labels in `{0, 1, 2, 3}`
-
-Preprocessing (current):
-- retain 22 EEG channels
-- map motor imagery events 769/770/771/772 -> labels 0/1/2/3
-- drop bad trials by reject markers
-- epoch window: 2s to 6s
-- Butterworth band-pass filtering: 4-40Hz
-- z-score normalization
-
-## Run training
-Train all baselines:
-```bash
-python main.py --model all --data_dir data/processed/bcic_iv_2a --results_root results
+```text
+results/eegnet_stepwise_debug_train_only_window_sweep_band_5_30hz
+results/protocol1_subject_dependent_te_train_eval_window_0p5_4p5_band_5_30hz
+results/protocol2_loso_te_train_eval_window_0p5_4p5_band_5_30hz
 ```
 
-Train one model:
-```bash
-python main.py --model EEGNet
-```
-Train `EEGNetFSFE` with lightweight DG regularization:
-```bash
-python main.py --model EEGNetFSFE --aux_mode center --lambda_aux 0.02
-python main.py --model EEGNetFSFE --aux_mode coral --lambda_aux 0.02
+## Protocols
+
+`loso_t`: legacy/debug protocol. Uses processed `AxxT` sessions only and performs LOSO across training sessions.
+
+`subject_dependent_te`: official-style subject-dependent protocol. For each subject, train on `AxxT`, validate on a split of `AxxT`, and test on `AxxE`.
+
+`loso_te`: strict subject-independent protocol. For each target subject, train on the other subjects' `AxxT`, validate on a split of the source `T` trials, and test on the target subject's `AxxE`.
+
+## Preprocessing
+
+Generate train-only data for window sweep or legacy LOSO debug:
+
+```powershell
+D:\anaconda3\envs\weed_out\python.exe scripts\process_bcic_iv_2a.py --raw-dir data/raw --session-mode train --l-freq 5 --h-freq 30 --tmin 0.5 --tmax 4.5 --replace-out-dir
 ```
 
-Run baseline diagnostics (label alignment / overfit-small-sample / protocol comparison / curves):
-```bash
-python scripts/validate_baseline_debug.py --model EEGNet --data_dir data/processed/bcic_iv_2a --results_root results/debug --run_loso
+Generate matched T/E data for protocol 1 and protocol 2:
+
+```powershell
+D:\anaconda3\envs\weed_out\python.exe scripts\process_bcic_iv_2a.py --raw-dir data/raw --label-dir data/raw/true_labels --session-mode all --l-freq 5 --h-freq 30 --tmin 0.5 --tmax 4.5 --replace-out-dir
 ```
 
-Recommended stronger recipe for cross-subject generalization (label smoothing + class balancing + temporal augmentation + warmup):
-```bash
-python main.py --model EEGNetFSFE --aux_mode center --lambda_aux 0.02 --label_smoothing 0.1 --max_time_shift 25 --noise_std 0.01 --aux_warmup_epochs 30
+When `--out-dir` is omitted, the preprocessing script now creates a descriptive directory name automatically.
+
+## Training
+
+Run protocol 1 with all baseline models:
+
+```powershell
+D:\anaconda3\envs\weed_out\python.exe main.py --model all --data_dir data/processed/bcic_iv_2a_train_eval_window_0p5_4p5_band_5_30hz --results_root results/protocol1_subject_dependent_te_train_eval_window_0p5_4p5_band_5_30hz --protocol subject_dependent_te
 ```
 
-Train `EEGNetFSFE` with lightweight DG regularization:
-```bash
-python main.py --model EEGNetFSFE --aux_mode center --lambda_aux 0.05
-python main.py --model EEGNetFSFE --aux_mode coral --lambda_aux 0.05
+Run protocol 2 with all baseline models:
+
+```powershell
+D:\anaconda3\envs\weed_out\python.exe main.py --model all --data_dir data/processed/bcic_iv_2a_train_eval_window_0p5_4p5_band_5_30hz --results_root results/protocol2_loso_te_train_eval_window_0p5_4p5_band_5_30hz --protocol loso_te
 ```
 
-## Output files
-For each model/fold
--`results/<model_name_lower>/fold_x/metrics.json`
--`results/<model_name_lower>/fold_x/confusion_matrix.png`
--`results/<model_name_lower>/fold_x/training_curve.png`
+Run one model:
+
+```powershell
+D:\anaconda3\envs\weed_out\python.exe main.py --model EEGNet --data_dir data/processed/bcic_iv_2a_train_eval_window_0p5_4p5_band_5_30hz --results_root results/eegnet_protocol2_loso_te_train_eval_window_0p5_4p5_band_5_30hz --protocol loso_te
+```
+
+## Stepwise Debug
+
+Run EEGNet window sweep diagnostics with descriptive output names:
+
+```powershell
+D:\anaconda3\envs\weed_out\python.exe scripts\run_stepwise_debug.py --model EEGNet --run_loso --run_window_sweep --execute
+```
+
+Default output:
+
+```text
+results/eegnet_stepwise_debug_train_only_window_sweep_band_5_30hz
+```
+
+## Output Files
+
+For each model/fold:
+
+```text
+results/<experiment>/<model_name_lower>/fold_<idx>/metrics.json
+results/<experiment>/<model_name_lower>/fold_<idx>/confusion_matrix.png
+results/<experiment>/<model_name_lower>/fold_<idx>/training_curve.png
+```
 
 Per-model summary:
--`results/<model_name_lower>/summary.csv`
+
+```text
+results/<experiment>/<model_name_lower>/summary.csv
+```
 
 Cross-model comparison:
--`results/baselinecompare.csv`
+
+```text
+results/<experiment>/baseline_compare.csv
+```

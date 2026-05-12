@@ -158,6 +158,122 @@ def build_loso_folds(
     return folds
 
 
+def _split_train_eval_sessions(
+    subject_data: Dict[str, Tuple[np.ndarray, np.ndarray]],
+) -> Tuple[Dict[str, Tuple[np.ndarray, np.ndarray]], Dict[str, Tuple[np.ndarray, np.ndarray]]]:
+    train_sessions: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
+    eval_sessions: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
+
+    for sid, data in subject_data.items():
+        sid_upper = sid.upper()
+        subject = sid_upper[:-1]
+        if sid_upper.endswith("T"):
+            train_sessions[subject] = data
+        elif sid_upper.endswith("E"):
+            eval_sessions[subject] = data
+
+    missing_train = sorted(set(eval_sessions) - set(train_sessions))
+    missing_eval = sorted(set(train_sessions) - set(eval_sessions))
+    if missing_train or missing_eval:
+        raise ValueError(
+            "Expected matched AxxT/AxxE processed files. "
+            f"missing_train={missing_train}, missing_eval={missing_eval}"
+        )
+    if not train_sessions:
+        raise ValueError("No matched AxxT/AxxE sessions found in processed data.")
+
+    return train_sessions, eval_sessions
+
+
+def build_subject_dependent_te_folds(
+    subject_data: Dict[str, Tuple[np.ndarray, np.ndarray]],
+    val_ratio: float = 0.2,
+    seed: int = 42,
+) -> List[Tuple[str, FoldData]]:
+    """Official-style per-subject protocol: train on AxxT, test on AxxE."""
+    train_sessions, eval_sessions = _split_train_eval_sessions(subject_data)
+    folds = []
+
+    for subject in sorted(train_sessions):
+        x_train_all, y_train_all = train_sessions[subject]
+        x_test, y_test = eval_sessions[subject]
+
+        idx = np.arange(len(y_train_all))
+        train_idx, val_idx = train_test_split(
+            idx, test_size=val_ratio, random_state=seed, stratify=y_train_all
+        )
+
+        folds.append(
+            (
+                f"{subject}E",
+                FoldData(
+                    x_train=x_train_all[train_idx],
+                    y_train=y_train_all[train_idx],
+                    x_val=x_train_all[val_idx],
+                    y_val=y_train_all[val_idx],
+                    x_test=x_test,
+                    y_test=y_test,
+                    sid_train=np.zeros((len(train_idx),), dtype=np.int64),
+                    sid_val=np.zeros((len(val_idx),), dtype=np.int64),
+                    sid_test=np.zeros((len(y_test),), dtype=np.int64),
+                ),
+            )
+        )
+
+    return folds
+
+
+def build_loso_train_eval_folds(
+    subject_data: Dict[str, Tuple[np.ndarray, np.ndarray]],
+    val_ratio: float = 0.2,
+    seed: int = 42,
+) -> List[Tuple[str, FoldData]]:
+    """Strict subject-independent protocol: source AxxT subjects -> target AxxE."""
+    train_sessions, eval_sessions = _split_train_eval_sessions(subject_data)
+    subjects = sorted(train_sessions)
+    folds = []
+
+    for test_subject in subjects:
+        x_test, y_test = eval_sessions[test_subject]
+
+        train_x_list, train_y_list, train_sid_list = [], [], []
+        for sid_idx, subject in enumerate(subjects):
+            if subject == test_subject:
+                continue
+            x, y = train_sessions[subject]
+            train_x_list.append(x)
+            train_y_list.append(y)
+            train_sid_list.append(np.full((len(y),), sid_idx, dtype=np.int64))
+
+        x_train_all = np.concatenate(train_x_list, axis=0)
+        y_train_all = np.concatenate(train_y_list, axis=0)
+        sid_train_all = np.concatenate(train_sid_list, axis=0)
+
+        idx = np.arange(len(y_train_all))
+        train_idx, val_idx = train_test_split(
+            idx, test_size=val_ratio, random_state=seed, stratify=y_train_all
+        )
+
+        folds.append(
+            (
+                f"{test_subject}E",
+                FoldData(
+                    x_train=x_train_all[train_idx],
+                    y_train=y_train_all[train_idx],
+                    sid_train=sid_train_all[train_idx],
+                    x_val=x_train_all[val_idx],
+                    y_val=y_train_all[val_idx],
+                    sid_val=sid_train_all[val_idx],
+                    x_test=x_test,
+                    y_test=y_test,
+                    sid_test=np.full((len(y_test),), subjects.index(test_subject), dtype=np.int64),
+                ),
+            )
+        )
+
+    return folds
+
+
 def normalize_by_train_stats(fold: FoldData) -> FoldData:
     mean = fold.x_train.mean(axis=(0, 2), keepdims=True)
     std = fold.x_train.std(axis=(0, 2), keepdims=True)

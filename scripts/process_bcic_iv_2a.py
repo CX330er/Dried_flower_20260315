@@ -15,6 +15,7 @@ from typing import Dict, List
 import shutil
 import sys
 import numpy as np
+from scipy.io import loadmat
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -30,6 +31,35 @@ from datasets.bcic_iv_2a_reader import (
 )
 
 
+def _time_tag(value: float) -> str:
+    return f"{value:.1f}".replace(".", "p")
+
+
+def _value_tag(value: float) -> str:
+    return f"{value:g}".replace(".", "p")
+
+
+def _window_tag(tmin: float, tmax: float) -> str:
+    return f"window_{_time_tag(tmin)}_{_time_tag(tmax)}"
+
+
+def _band_tag(l_freq: float, h_freq: float) -> str:
+    return f"band_{_value_tag(l_freq)}_{_value_tag(h_freq)}hz"
+
+
+def _session_tag(session_mode: str) -> str:
+    return {
+        "train": "train_only",
+        "eval": "eval_only",
+        "all": "train_eval",
+    }[session_mode]
+
+
+def default_processed_dir(session_mode: str, tmin: float, tmax: float, l_freq: float, h_freq: float) -> Path:
+    name = f"bcic_iv_2a_{_session_tag(session_mode)}_{_window_tag(tmin, tmax)}_{_band_tag(l_freq, h_freq)}"
+    return Path("data") / "processed" / name
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="BCIC-IV-2a preprocessing pipeline")
     parser.add_argument(
@@ -41,14 +71,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--out-dir",
         type=str,
-        default="data/processed/bcic_iv_2a",
-        help="Directory to save processed .npz and stats report",
+        default=None,
+        help="Directory to save processed .npz and stats report. Defaults to a descriptive protocol/window/band name.",
     )
-    parser.add_argument("--l-freq", type=float, default=4.0)
-    parser.add_argument("--h-freq", type=float, default=40.0)
+    parser.add_argument(
+        "--label-dir",
+        type=str,
+        default="data/raw/true_labels",
+        help="Directory containing official .mat labels for evaluation sessions",
+    )
+    parser.add_argument(
+        "--session-mode",
+        choices=["train", "eval", "all"],
+        default="train",
+        help="Process training sessions only, evaluation sessions only, or both.",
+    )
+    parser.add_argument("--l-freq", type=float, default=5.0)
+    parser.add_argument("--h-freq", type=float, default=30.0)
     parser.add_argument("--sfreq", type=int, default=250)
-    parser.add_argument("--tmin", type=float, default=2.0)
-    parser.add_argument("--tmax", type=float, default=6.0)
+    parser.add_argument("--tmin", type=float, default=0.5)
+    parser.add_argument("--tmax", type=float, default=4.5)
     parser.add_argument("--butter-order", type=int, default=4)
     parser.add_argument(
         "--replace-out-dir",
@@ -58,9 +100,33 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _session_allowed(sid: str, session_mode: str) -> bool:
+    if session_mode == "all":
+        return sid.endswith(("T", "E"))
+    if session_mode == "train":
+        return sid.endswith("T")
+    if session_mode == "eval":
+        return sid.endswith("E")
+    raise ValueError(f"Unsupported session_mode={session_mode}")
+
+
+def _load_external_labels(label_dir: Path, sid: str) -> np.ndarray:
+    label_path = label_dir / f"{sid}.mat"
+    if not label_path.exists():
+        raise FileNotFoundError(f"Missing official label file for {sid}: {label_path}")
+    data = loadmat(label_path)
+    if "classlabel" not in data:
+        keys = sorted(k for k in data if not k.startswith("__"))
+        raise KeyError(f"Expected 'classlabel' in {label_path}; available keys={keys}")
+    return np.asarray(data["classlabel"]).squeeze()
+
+
 def main() -> None:
     args = parse_args()
     raw_dir = Path(args.raw_dir)
+    label_dir = Path(args.label_dir)
+    if args.out_dir is None:
+        args.out_dir = str(default_processed_dir(args.session_mode, args.tmin, args.tmax, args.l_freq, args.h_freq))
     out_dir = Path(args.out_dir)
 
     if args.replace_out_dir and out_dir.exists():
@@ -90,6 +156,8 @@ def main() -> None:
             "tmax": config.tmax,
             "butter_order": config.butter_order,
             "reject_markers": sorted(DEFAULT_REJECT_MARKERS),
+            "session_mode": args.session_mode,
+            "label_dir": str(label_dir),
             "target_shape": "B x 1 x C x T",
         },
         "files": [],
@@ -102,10 +170,18 @@ def main() -> None:
     merged_group: List[str] = []
 
     for file_path in all_files:
+        sid = collect_subject_session_id(file_path)
+        if not _session_allowed(sid, args.session_mode):
+            continue
+
+        external_labels = _load_external_labels(label_dir, sid) if sid.endswith("E") else None
         try:
-            x, y, meta = preprocess_one_file(file_path=file_path, config=config)
+            x, y, meta = preprocess_one_file(
+                file_path=file_path,
+                config=config,
+                external_labels=external_labels,
+            )
         except NoCueEventsError as err:
-            sid = collect_subject_session_id(file_path)
             report["skipped_files"].append(
                 {
                     "file": file_path.name,
@@ -115,8 +191,6 @@ def main() -> None:
             )
             print(f"[SKIP] {file_path.name}: {err}")
             continue
-
-        sid = collect_subject_session_id(file_path)
 
         np.savez_compressed(
             out_dir / f"{sid}.npz",
@@ -160,8 +234,8 @@ def main() -> None:
 
     report["merged"] = {
         "n_trials": int(x_all.shape[0]),
-        "n_channels": int(x_all.shape[1]),
-        "n_times": int(x_all.shape[2]),
+        "n_channels": int(x_all.shape[2] if x_all.ndim == 4 else x_all.shape[1]),
+        "n_times": int(x_all.shape[3] if x_all.ndim == 4 else x_all.shape[2]),
         "label_distribution": {str(k): int((y_all == k).sum()) for k in np.unique(y_all)},
     }
 

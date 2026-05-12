@@ -18,6 +18,10 @@ EVENT_ID_MAP: Dict[str, int] = {
     "772": 3,  # tongue
 }
 
+# Evaluation sessions encode unknown class cues as 783. Official labels live in
+# true_labels/AxxE.mat and are attached during preprocessing.
+EVAL_CUE_EVENT_CODE = "783"
+
 # Canonical 22 EEG channels in BCIC-IV-2a.
 BCIC_IV_2A_EEG_CHANNELS: List[str] = [
     "Fz",
@@ -61,11 +65,11 @@ class NoCueEventsError(RuntimeError):
 class ProcessConfig:
     """Configuration for preprocessing BCIC-IV-2a data."""
 
-    l_freq: float = 4.0
-    h_freq: float = 40.0
+    l_freq: float = 5.0
+    h_freq: float = 30.0
     resample_sfreq: int = 250
-    tmin: float = 2.0
-    tmax: float = 6.0
+    tmin: float = 0.5
+    tmax: float = 4.5
     baseline: Tuple[float, float] | None = None
     butter_order: int = 4
 
@@ -142,6 +146,39 @@ def _extract_cue_events(raw: mne.io.BaseRaw) -> Tuple[np.ndarray, np.ndarray]:
     return np.asarray(cue_rows, dtype=int), np.asarray(cue_labels, dtype=int)
 
 
+def _extract_eval_cue_events(raw: mne.io.BaseRaw, external_labels: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    events, event_id = mne.events_from_annotations(raw, verbose="ERROR")
+    code_by_event_value = {value: _normalize_annotation_desc(key) for key, value in event_id.items()}
+
+    cue_rows = []
+    for ev in events:
+        event_value = int(ev[2])
+        code = code_by_event_value.get(event_value, "")
+        if code == EVAL_CUE_EVENT_CODE:
+            cue_rows.append(ev)
+
+    if not cue_rows:
+        available_codes = sorted(set(code_by_event_value.values()))
+        raise NoCueEventsError(
+            f"No evaluation cue events ({EVAL_CUE_EVENT_CODE}) found in file. "
+            f"Available annotation codes include: {available_codes[:20]}"
+        )
+
+    labels = np.asarray(external_labels).squeeze().astype(np.int64)
+    if labels.ndim != 1:
+        raise ValueError(f"Expected external labels to be 1D after squeeze, got shape={labels.shape}.")
+    if labels.size != len(cue_rows):
+        raise ValueError(
+            f"External label count ({labels.size}) does not match evaluation cue count ({len(cue_rows)})."
+        )
+    if set(np.unique(labels).tolist()).issubset({1, 2, 3, 4}):
+        labels = labels - 1
+    if not set(np.unique(labels).tolist()).issubset({0, 1, 2, 3}):
+        raise ValueError(f"External labels must be in 1-4 or 0-3, got {sorted(np.unique(labels).tolist())}.")
+
+    return np.asarray(cue_rows, dtype=int), labels
+
+
 def _drop_bad_trials(
     cue_events: np.ndarray,
     cue_labels: np.ndarray,
@@ -201,6 +238,7 @@ def preprocess_one_file(
     file_path: Path,
     config: ProcessConfig,
     reject_markers: Iterable[str] = DEFAULT_REJECT_MARKERS,
+    external_labels: np.ndarray | None = None,
 ) -> Tuple[np.ndarray, np.ndarray, Dict[str, int | str]]:
     """Load and preprocess one file into (X, y, metadata).
 
@@ -218,7 +256,12 @@ def preprocess_one_file(
 
     raw.resample(config.resample_sfreq, npad="auto", verbose="ERROR")
 
-    cue_events, cue_labels = _extract_cue_events(raw)
+    if external_labels is None:
+        cue_events, cue_labels = _extract_cue_events(raw)
+        label_source = "events_769_772"
+    else:
+        cue_events, cue_labels = _extract_eval_cue_events(raw, external_labels=external_labels)
+        label_source = "external_true_labels"
     bad_times = _extract_bad_event_times(raw, reject_markers=reject_markers)
     cue_events, cue_labels = _drop_bad_trials(
         cue_events,
@@ -262,6 +305,7 @@ def preprocess_one_file(
         "n_times": int(x.shape[3]),
         "sfreq": int(config.resample_sfreq),
         "shape": [int(v) for v in x.shape],
+        "label_source": label_source,
     }
     return x, y, meta
 

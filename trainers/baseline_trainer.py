@@ -12,7 +12,14 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader, WeightedRandomSampler
 from tqdm import tqdm
 
-from datasets.loso_npz import EEGDataset, build_loso_folds, load_subject_data, normalize_by_train_stats
+from datasets.loso_npz import (
+    EEGDataset,
+    build_loso_folds,
+    build_loso_train_eval_folds,
+    build_subject_dependent_te_folds,
+    load_subject_data,
+    normalize_by_train_stats,
+)
 from models.deepconvnet import DeepConvNet
 from models.eegnet import EEGNet
 from models.fbcnet import FBCNet
@@ -37,6 +44,17 @@ MODEL_REGISTRY = {
 }
 
 ALL_MODELS = ["ShallowConvNet", "DeepConvNet", "EEGNet", "FBCNet", "MSFBCNN"]
+PROTOCOL_CHOICES = ("loso_t", "subject_dependent_te", "loso_te")
+
+
+def _build_protocol_folds(subject_data, protocol: str, val_ratio: float, seed: int):
+    if protocol == "loso_t":
+        return build_loso_folds(subject_data, val_ratio=val_ratio, seed=seed)
+    if protocol == "subject_dependent_te":
+        return build_subject_dependent_te_folds(subject_data, val_ratio=val_ratio, seed=seed)
+    if protocol == "loso_te":
+        return build_loso_train_eval_folds(subject_data, val_ratio=val_ratio, seed=seed)
+    raise ValueError(f"Unknown protocol={protocol}. Expected one of {PROTOCOL_CHOICES}.")
 
 class EarlyStopping:
     def __init__(self, patience: int = 50):
@@ -162,7 +180,7 @@ def _run_epoch(
             elif aux_mode == "coral" and features is not None and sid is not None:
                 aux_loss = _subject_coral_loss(features, sid)
 
-            loss = cls_loss + lambda_aux * aux_loss
+            loss = cls_loss + effective_lambda_aux * aux_loss
 
             if train:
                 optimizer.zero_grad()
@@ -199,16 +217,17 @@ def train_and_evaluate_model(
     noise_std: float = 0.01,
     grad_clip_norm: float = 1.0,
     aux_warmup_epochs: int = 30,
+    protocol: str = "loso_t",
 ):
     set_seed(seed)
 
     subject_data = load_subject_data(data_dir)
-    folds = build_loso_folds(subject_data, val_ratio=0.2, seed=seed)
+    folds = _build_protocol_folds(subject_data, protocol=protocol, val_ratio=0.2, seed=seed)
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     all_metrics = []
 
-    print(f"[{model_name}] start training on {len(folds)} LOSO folds")
+    print(f"[{model_name}] start training on {len(folds)} folds | protocol={protocol}")
 
     for fold_idx, (test_sid, fold_raw) in enumerate(folds, start=1):
         fold = normalize_by_train_stats(fold_raw)
@@ -341,7 +360,7 @@ def train_and_evaluate_model(
         y_true = np.array(y_true)
         y_pred = np.array(y_pred)
         metrics = compute_metrics(y_true, y_pred)
-        metrics.update({"fold": fold_idx, "test_subject": test_sid})
+        metrics.update({"fold": fold_idx, "test_subject": test_sid, "protocol": protocol})
         all_metrics.append(metrics)
 
         print(
@@ -386,12 +405,21 @@ def train_and_evaluate_model(
     return df
 
 
-def run_all_baselines(data_dir: str = "data/processed/bcic_iv_2a", results_root: str = "results"):
+def run_all_baselines(
+    data_dir: str = "data/processed/bcic_iv_2a",
+    results_root: str = "results",
+    protocol: str = "loso_t",
+):
     import pandas as pd
 
     compare_rows = []
     for model_name in ALL_MODELS:
-        df = train_and_evaluate_model(model_name=model_name, data_dir=data_dir, results_root=results_root)
+        df = train_and_evaluate_model(
+            model_name=model_name,
+            data_dir=data_dir,
+            results_root=results_root,
+            protocol=protocol,
+        )
         mean_row = df[df["fold"] == "mean"].iloc[0]
         compare_rows.append(
             {
