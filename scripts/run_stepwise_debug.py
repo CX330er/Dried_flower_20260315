@@ -17,6 +17,10 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from utils.run_naming import make_dated_results_root, write_run_config
 
 
 def _time_tag(value: float) -> str:
@@ -71,21 +75,43 @@ def main() -> None:
     parser.add_argument("--raw_dir", type=str, default="data/raw")
     parser.add_argument("--base_processed_dir", type=str, default=None)
     parser.add_argument("--results_root", type=str, default=None)
-    parser.add_argument("--l_freq", type=float, default=5.0, help="Band-pass low cutoff used in window sweep preprocessing.")
-    parser.add_argument("--h_freq", type=float, default=30.0, help="Band-pass high cutoff used in window sweep preprocessing.")
+    parser.add_argument("--run_timestamp", type=str, default=None, help="Optional date tag for automatic result names, e.g. 2026-05-13_1125.")
+    parser.add_argument("--l_freq", type=float, default=4.0, help="Band-pass low cutoff used in window sweep preprocessing.")
+    parser.add_argument("--h_freq", type=float, default=40.0, help="Band-pass high cutoff used in window sweep preprocessing.")
     parser.add_argument("--execute", action="store_true", help="Actually run commands. Default only prints commands.")
     parser.add_argument("--run_loso", action="store_true")
     parser.add_argument("--run_window_sweep", action="store_true")
     args = parser.parse_args()
 
-    band_tag = _band_tag(args.l_freq, args.h_freq)
     if args.base_processed_dir is None:
         args.base_processed_dir = str(REPO_ROOT / "data" / "processed" / _processed_dir_name(0.5, 4.5, args.l_freq, args.h_freq))
     if args.results_root is None:
-        args.results_root = f"results/{args.model.lower()}_stepwise_debug_train_only_window_sweep_{band_tag}"
+        args.results_root = str(
+            make_dated_results_root(
+                "results",
+                name_parts=[args.model, "stepwise_debug"],
+                run_timestamp=args.run_timestamp,
+            )
+        )
 
     results_root = REPO_ROOT / args.results_root
     results_root.mkdir(parents=True, exist_ok=True)
+    write_run_config(
+        results_root,
+        {
+            "entrypoint": "scripts/run_stepwise_debug.py",
+            "argv": sys.argv,
+            "model": args.model,
+            "raw_dir": args.raw_dir,
+            "base_processed_dir": args.base_processed_dir,
+            "l_freq": args.l_freq,
+            "h_freq": args.h_freq,
+            "run_loso": args.run_loso,
+            "run_window_sweep": args.run_window_sweep,
+            "execute": args.execute,
+        },
+    )
+    print(f"[results] {results_root}")
 
     # Step 1: strict overfit on tiny sample.
     step1_dir = results_root / "step1_overfit"

@@ -120,6 +120,8 @@ class FrequencyStableTemporalConv(nn.Module):
         self.kernel_size = kernel_size
         self.sfreq = float(sfreq)
         self.center_tune_hz = float(center_tune_hz)
+        self.freq_min_hz = min(lo for lo, _hi in bands_hz)
+        self.freq_max_hz = max(hi for _lo, hi in bands_hz)
 
         centers = [(lo + hi) * 0.5 for lo, hi in bands_hz]
         bandwidths = [max(hi - lo, 1e-3) for lo, hi in bands_hz]
@@ -152,8 +154,8 @@ class FrequencyStableTemporalConv(nn.Module):
 
         nyquist = self.sfreq / 2.0
         bandwidth = torch.clamp(bandwidth, min=1.0, max=nyquist - 1.0)
-        low = torch.clamp(center - 0.5 * bandwidth, min=0.5)
-        high = torch.clamp(center + 0.5 * bandwidth, max=nyquist - 0.5)
+        low = torch.clamp(center - 0.5 * bandwidth, min=self.freq_min_hz)
+        high = torch.clamp(center + 0.5 * bandwidth, max=min(self.freq_max_hz, nyquist - 0.5))
         bandwidth = torch.clamp(high - low, min=1.0)
         center = 0.5 * (low + high)
         return center, bandwidth
@@ -171,8 +173,8 @@ class FrequencyStableTemporalConv(nn.Module):
 
         kernels = []
         for lo, hi, amp_log in zip(low, high, self.log_amplitude):
-            lo = torch.clamp(lo, min=0.5)
-            hi = torch.clamp(hi, max=self.sfreq / 2.0 - 0.5)
+            lo = torch.clamp(lo, min=self.freq_min_hz)
+            hi = torch.clamp(hi, max=min(self.freq_max_hz, self.sfreq / 2.0 - 0.5))
 
             bandpass = (2.0 * hi * torch.sinc(2.0 * hi * t)) - (2.0 * lo * torch.sinc(2.0 * lo * t))
             bandpass = bandpass * self.window.to(device=device, dtype=dtype)

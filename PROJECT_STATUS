@@ -1,76 +1,225 @@
-## Instructions for executing the current project
+## Current Project Status
 
-## current stage task：
-1.Complete the design of the third layer of the network
-2.Debug the network to improve its accuracy
+Last reviewed: 2026-05-14
+Project path: D:\PycharmProjects\Dried_Flower
 
-## Some Notes
-1.The data used is the currently processed data, which consists of data from 9 subjects in the format of .npz files, located in the path "D:\PycharmProjects\Dried_Flower\scripts\data\processed\bcic_iv_2a". It only utilizes labeled training samples.
+This file is now a current operating note. Older settings such as 2-6s,
+train-only legacy LOSO as the only formal protocol, and the old
+scripts/data/processed path are deprecated. The project has returned to
+4-40Hz as the active preprocessing band.
 
-2.The official correct label data used to evaluate the model performance results is stored in the path "D:\PycharmProjects\Dried_Flower\data\raw\true_labels", in the format of .mat. Each file corresponds to the test data in the original dataset
+Authoritative context should be read from:
 
-3.The input shape of tensor is unified as [B, 22, T], and it is up to the model to decide whether to expand the dimension to [B, 1, 22, T]; the labels are unified as y in {0,1,2,3}, which correspond to four types of motor imagery actions respectively
+- README.md
+- PROJECT_CHANGE_LOG.md
+- Current source code
+- Dried_Flower_项目上下文总结_2026-05-13.md
 
-4.The data was divided using the LOSO (Leave-One-Subject-Out) strategy, which involved dividing the 9 subjects into 9 folds. Within each fold, 1 subject served as the test set, while the remaining 8 subjects were used as the training set. Within the training set, a validation set was further split (with a ratio of 8:2) using a fixed random seed for trial-based random splitting
+## Current Goal
 
-5.No longer alter the parameters (22ch, 2-6s, 4-40Hz, 250Hz) in the signal preprocessing step, and only use the train statistics for normalization
+The project targets BCIC-IV-2a four-class motor imagery EEG recognition.
+The current priority is to keep baseline evaluation, subject-dependent
+evaluation, and strict subject-independent / LOSO evaluation clean,
+traceable, and reproducible before adding more complex DG modules.
 
-6.All baseline models utilize the same set of training settings:
-Epoch：300
-Optimizer：Adam
-LR：1e-3
-Batch size：64
-Loss：CrossEntropy
-Early stopping：patience=50
-Fix random seed
+EEGNet structural modification work is still relevant. The current custom
+variant is EEGNetFSFE, which contains:
 
-7.Each model should generate a file: 
-results/<model_name>/fold_x/metrics.json
-results/<model_name>/fold_x/confusion_matrix.png
-results/<model_name>/summary.csv
-Full model comparison table: results/baseline_compare.csv
+- Frequency-stable temporal front-end.
+- The EEGNetFSFE front-end fixed bands are aligned with the current 4-40 Hz
+  preprocessing range.
+- Lightweight shared spatial prior module.
+- Third-layer EEGNet-style separable temporal back-end.
 
+## Current Data Setting
 
-## Completed items：
-2026.3.20
-I have now completed the data reading and processing part of Stage 1.1, which includes the following:
-1.Read the original file and retain 22 EEG channels
+- Dataset: BCIC-IV-2a.
+- Raw data: data/raw/A01T-A09T.gdf and data/raw/A01E-A09E.gdf.
+- Evaluation true labels: data/raw/true_labels/AxxE.mat.
+- Current target processed T/E data:
+  data/processed/bcic_iv_2a_train_eval_window_0p5_4p5_band_4_40hz
+- Channels: 22 EEG channels.
+- Classes: 4 classes, labels normalized to y in {0, 1, 2, 3}.
+- Sampling rate: 250 Hz.
+- Current preprocessing band: 4-40 Hz.
+- Current time window: 0.5-4.5 s.
+- Processed shape: [N, 1, 22, T].
+- Loader/model input shape: [B, 22, T]; models expand to [B, 1, 22, T] when needed.
+- The expected T/E processed data contains 18 session files, 5184 total trials,
+  and every AxxT/AxxE session has 288 trials with 72 trials per class.
+- Normalization is computed from each fold's training split and then applied
+  to train, validation, and test splits.
 
-2.Analyze event codes and establish a mapping of four types of labels
+## Current Formal Protocols
 
-3.Switch epochs based on a fixed cue window
+### Protocol 1: subject_dependent_te
 
-4.Unified filtering/resampling
+Official-style subject-dependent evaluation.
 
-5.Delete the trial you have defined as invalid
+- For each subject, use that subject's AxxT as the training source.
+- Split AxxT into train=230 and val=58 with a fixed seed.
+- Test on the same subject's full AxxE session with 288 trials.
+- This is valid as a conservative early-stopping baseline, but may slightly
+  underestimate a final subject-dependent baseline because only 230 of 288
+  AxxT trials are used for model fitting.
 
-6.Save in a unified sample format
+### Protocol 1 final: subject_dependent_te_final
 
-7.Output data statistics report
+Final subject-dependent evaluation.
 
-2026.3.29
-And I have completed the baseline model part pf Stage 1.2, which include the following:
-1.Establishing the baseline model :ShallowConvNet, DeepConvNet and EEGNet
-2.trainning and testing the ShallowConvNet, DeepConvNet and EEGNet by LOSO task and input the results
+- For each subject, first use the same AxxT train/validation split as
+  subject_dependent_te to select the best epoch.
+- Reinitialize the model and train from scratch on the complete AxxT=288
+  session for the selected number of epochs.
+- Test on the same subject's full AxxE=288 session.
+- Save the full-training curve as training_curve.png and the epoch-selection
+  curve as selection_curve.png.
 
-2026.3.31
-1. Establish models capable of processing previous data: FBCNet and MSFBCNN
+### Protocol 2: loso_te
 
-2.The task involves four-class motor imagery, where relevant parameters of each baseline model are saved, the training process is visualized, relevant evaluation metrics are selected, and performance metrics are visualized
+Strict subject-independent / LOSO train-eval protocol.
 
-3.I need you to not only save the performance results of the model test but also visualize them
+- For each fold, choose one target subject.
+- Test on the target subject's AxxE session.
+- Train/validate only on the other 8 subjects' AxxT sessions.
+- The target subject is excluded from training and validation.
+- This is the current main protocol for cross-subject generalization.
 
-2026.4.10
-1.The data processing was modified and re-executed.
+### Legacy/debug protocol: loso_t
 
-2026.4.13
-1.The construction of the first layer—the stable-frequency front-end—of the model has been completed. This front-end primarily extracts time-domain features from the sub-bands of the MI-EEG data.
-2.Furthermore, the interpretability analysis of the first part has been completed.
+- Uses AxxT processed sessions only.
+- Useful for historical comparison and diagnostics.
+- It is not the current formal train/eval protocol.
 
-2026.4.27
-1.Complete the second-layer design for the modification of the EEGNet network architecture during Phase 2.
-2.Second-Layer Design: Lightweight Spatial Prior Module.Extracts universal spatial features characterized by an individual-shared nature.
+## Current Training Defaults
 
-## next goal：
-Part II: Implementing Structural Modifications to EEGNet
+Baseline training is implemented in trainers/baseline_trainer.py.
 
+- Epochs: 300.
+- Optimizer: Adam.
+- LR: 1e-3.
+- Scheduler: CosineAnnealingLR with eta_min=1e-5.
+- Batch size: 64.
+- Loss: CrossEntropyLoss.
+- Label smoothing: 0.1 by default.
+- Class weights: enabled by default.
+- Weighted sampler: enabled by default.
+- Time-shift augmentation: max_time_shift=25 by default.
+- Gaussian noise augmentation: noise_std=0.01 by default.
+- Gradient clipping: grad_clip_norm=1.0 by default.
+- Early stopping: patience=50.
+- Seed: 42.
+
+The default "all" run list currently includes:
+
+- ShallowConvNet
+- DeepConvNet
+- EEGNet
+- FBCNet
+- MSFBCNN
+- EEGNetFSFE
+
+Training accepts --seed so repeated runs can be compared and filtered by
+fold-level metrics.
+Interrupted runs can be continued with --resume. A resumed run skips fold
+directories that already contain metrics.json and trains only missing folds.
+
+Available source-domain auxiliary modes:
+
+- none: standard supervised training.
+- center: supervised within-class feature compactness.
+- coral: pairwise source-subject covariance alignment.
+- eegdg: EEG-DG-style source-subject marginal MMD plus class-conditional MMD.
+
+## Current Result Naming Rule
+
+Processed data directories keep preprocessing tags because they describe the
+data artifact itself:
+
+- bcic_iv_2a_train_only_window_0p5_4p5_band_4_40hz
+- bcic_iv_2a_train_eval_window_0p5_4p5_band_4_40hz
+
+New result directories should use date-based run names and should not include
+long preprocessing tags:
+
+- results/2026-05-13_1130_all_subject_dependent_te
+- results/2026-05-13_1145_all_loso_te
+- results/2026-05-13_1200_eegnet_stepwise_debug
+
+Each new result root should include run_config.json so short directory names
+remain traceable.
+
+Expected output files include:
+
+- results/<experiment>/<model>/fold_<idx>/metrics.json
+- results/<experiment>/<model>/fold_<idx>/predictions.csv
+- results/<experiment>/<model>/fold_<idx>/confusion_matrix.csv
+- results/<experiment>/<model>/fold_<idx>/confusion_matrix.png
+- results/<experiment>/<model>/fold_<idx>/history.csv
+- results/<experiment>/<model>/fold_<idx>/selection_history.csv for subject_dependent_te_final
+- results/<experiment>/<model>/fold_<idx>/training_curve.png
+- results/<experiment>/<model>/fold_<idx>/selection_curve.png for subject_dependent_te_final
+- results/<experiment>/<model>/summary.csv
+- results/<experiment>/baseline_compare.csv
+- results/<experiment>/all_fold_metrics.csv
+- results/<experiment>/baseline_compare_metrics.png
+- results/<experiment>/foldwise_metrics_boxplot.png when fold-wise summaries exist
+- results/<experiment>/run_config.json
+
+## Historical 5-30Hz Baseline Results
+
+The following results were produced with the previous 5-30Hz preprocessing
+setting. They remain useful as historical comparisons, but new official
+results should be regenerated with 4-40Hz processed data.
+
+Historical Protocol 1 result directory:
+results/protocol1_subject_dependent_te_train_eval_window_0p5_4p5_band_5_30hz
+
+| Model | Accuracy | F1-macro | Kappa |
+|---|---:|---:|---:|
+| ShallowConvNet | 0.5343 | 0.5230 | 0.3791 |
+| EEGNet | 0.5228 | 0.5118 | 0.3637 |
+| FBCNet | 0.4402 | 0.4215 | 0.2536 |
+| DeepConvNet | 0.4371 | 0.3783 | 0.2495 |
+| MSFBCNN | 0.3893 | 0.3854 | 0.1857 |
+
+Historical Protocol 2 result directory:
+results/protocol2_loso_te_train_eval_window_0p5_4p5_band_5_30hz
+
+| Model | Accuracy | F1-macro | Kappa |
+|---|---:|---:|---:|
+| FBCNet | 0.4155 | 0.3957 | 0.2207 |
+| ShallowConvNet | 0.4090 | 0.3688 | 0.2119 |
+| EEGNet | 0.4024 | 0.3539 | 0.2032 |
+| DeepConvNet | 0.3981 | 0.3516 | 0.1975 |
+| MSFBCNN | 0.3673 | 0.3377 | 0.1564 |
+
+Interpretation:
+
+- ShallowConvNet and EEGNet were strongest under the historical 5-30Hz Protocol 1.
+- FBCNet was strongest under the historical 5-30Hz strict Protocol 2.
+- Protocol 2 performance is lower than Protocol 1, showing clear cross-subject
+  domain shift.
+- Difficult target subjects under Protocol 2 include A07E, A05E, and A02E.
+
+## Change Log Rule
+
+Every project file change must be recorded in PROJECT_CHANGE_LOG.md in the
+same work turn. This includes code, documentation, protocol definitions,
+training recipes, output naming, result summaries, and status notes.
+
+Use scripts/append_change_log.py for consistent log entries. A typical command:
+
+D:\anaconda3\envs\weed_out\python.exe scripts\append_change_log.py --title "Short title" --purpose "Why this change was made" --changed "What changed" --added "What was added" --removed "What was removed"
+
+If a future change is made manually by Codex, Codex should also append the
+corresponding log entry automatically before finishing the response.
+
+## Recommended Next Steps
+
+1. Regenerate processed train/eval data with 4-40Hz and window 0.5-4.5s.
+2. Rerun subject_dependent_te, subject_dependent_te_final, and loso_te
+   baselines on the 4-40Hz data.
+3. Rerun EEGNetFSFE under loso_te after the 4-40Hz data is ready.
+4. Treat the 5-30Hz baseline and EEGNetFSFE results as historical comparisons.
+5. Continue appending PROJECT_CHANGE_LOG.md entries for every future change.

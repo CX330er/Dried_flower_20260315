@@ -5,15 +5,98 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from sklearn.metrics import accuracy_score, cohen_kappa_score, confusion_matrix, f1_score
+from sklearn.metrics import (
+    accuracy_score,
+    balanced_accuracy_score,
+    cohen_kappa_score,
+    confusion_matrix,
+    f1_score,
+    precision_recall_fscore_support,
+)
 
 
-def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
-    return {
+def _metric_labels(y_true: np.ndarray, y_pred: np.ndarray, n_classes: int | None = None) -> list[int]:
+    if n_classes is not None:
+        return list(range(n_classes))
+    observed = np.unique(np.concatenate([y_true, y_pred]))
+    return [int(label) for label in observed.tolist()]
+
+
+def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray, n_classes: int | None = None) -> dict:
+    labels = _metric_labels(y_true, y_pred, n_classes=n_classes)
+    precision, recall, per_class_f1, support = precision_recall_fscore_support(
+        y_true,
+        y_pred,
+        labels=labels,
+        zero_division=0,
+    )
+    cm = confusion_matrix(y_true, y_pred, labels=labels)
+    true_counts = np.bincount(y_true.astype(int), minlength=len(labels))
+    pred_counts = np.bincount(y_pred.astype(int), minlength=len(labels))
+
+    metrics = {
         "accuracy": float(accuracy_score(y_true, y_pred)),
-        "f1_macro": float(f1_score(y_true, y_pred, average="macro")),
+        "balanced_accuracy": float(balanced_accuracy_score(y_true, y_pred)),
+        "precision_macro": float(np.mean(precision)),
+        "recall_macro": float(np.mean(recall)),
+        "f1_macro": float(f1_score(y_true, y_pred, labels=labels, average="macro", zero_division=0)),
+        "f1_weighted": float(f1_score(y_true, y_pred, labels=labels, average="weighted", zero_division=0)),
         "kappa": float(cohen_kappa_score(y_true, y_pred)),
     }
+
+    for idx, label in enumerate(labels):
+        metrics[f"class_{label}_precision"] = float(precision[idx])
+        metrics[f"class_{label}_recall"] = float(recall[idx])
+        metrics[f"class_{label}_f1"] = float(per_class_f1[idx])
+        metrics[f"class_{label}_support"] = int(support[idx])
+        metrics[f"true_count_class_{label}"] = int(true_counts[idx])
+        metrics[f"pred_count_class_{label}"] = int(pred_counts[idx])
+
+    for true_idx, true_label in enumerate(labels):
+        for pred_idx, pred_label in enumerate(labels):
+            metrics[f"cm_true_{true_label}_pred_{pred_label}"] = int(cm[true_idx, pred_idx])
+
+    return metrics
+
+
+def save_confusion_matrix_values(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    path: str | Path,
+    n_classes: int | None = None,
+) -> None:
+    labels = _metric_labels(y_true, y_pred, n_classes=n_classes)
+    cm = confusion_matrix(y_true, y_pred, labels=labels)
+    df = pd.DataFrame(
+        cm,
+        index=[f"true_{label}" for label in labels],
+        columns=[f"pred_{label}" for label in labels],
+    )
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(path)
+
+
+def save_predictions(y_true: np.ndarray, y_pred: np.ndarray, path: str | Path) -> None:
+    df = pd.DataFrame(
+        {
+            "trial_index": np.arange(len(y_true), dtype=int),
+            "y_true": y_true.astype(int),
+            "y_pred": y_pred.astype(int),
+            "correct": (y_true == y_pred).astype(int),
+        }
+    )
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(path, index=False)
+
+
+def save_history_csv(history: dict, path: str | Path) -> None:
+    df = pd.DataFrame(history)
+    df.insert(0, "epoch", np.arange(1, len(df) + 1, dtype=int))
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(path, index=False)
 
 
 def save_confusion_matrix(y_true: np.ndarray, y_pred: np.ndarray, path: str | Path) -> None:

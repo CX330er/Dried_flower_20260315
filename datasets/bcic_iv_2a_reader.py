@@ -65,8 +65,8 @@ class NoCueEventsError(RuntimeError):
 class ProcessConfig:
     """Configuration for preprocessing BCIC-IV-2a data."""
 
-    l_freq: float = 5.0
-    h_freq: float = 30.0
+    l_freq: float = 4.0
+    h_freq: float = 40.0
     resample_sfreq: int = 250
     tmin: float = 0.5
     tmax: float = 4.5

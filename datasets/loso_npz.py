@@ -30,6 +30,9 @@ class FoldData:
     sid_train: np.ndarray | None = None
     sid_val: np.ndarray | None = None
     sid_test: np.ndarray | None = None
+    x_train_full: np.ndarray | None = None
+    y_train_full: np.ndarray | None = None
+    sid_train_full: np.ndarray | None = None
 
 
 class EEGDataset(Dataset):
@@ -223,6 +226,52 @@ def build_subject_dependent_te_folds(
     return folds
 
 
+def build_subject_dependent_te_final_folds(
+    subject_data: Dict[str, Tuple[np.ndarray, np.ndarray]],
+    val_ratio: float = 0.2,
+    seed: int = 42,
+) -> List[Tuple[str, FoldData]]:
+    """Subject-dependent final protocol.
+
+    The split AxxT train/val subset is kept for selecting the best epoch.
+    The full AxxT session is also stored so the trainer can refit on all
+    288 training trials before evaluating on AxxE.
+    """
+    train_sessions, eval_sessions = _split_train_eval_sessions(subject_data)
+    folds = []
+
+    for subject in sorted(train_sessions):
+        x_train_all, y_train_all = train_sessions[subject]
+        x_test, y_test = eval_sessions[subject]
+
+        idx = np.arange(len(y_train_all))
+        train_idx, val_idx = train_test_split(
+            idx, test_size=val_ratio, random_state=seed, stratify=y_train_all
+        )
+
+        folds.append(
+            (
+                f"{subject}E",
+                FoldData(
+                    x_train=x_train_all[train_idx],
+                    y_train=y_train_all[train_idx],
+                    x_val=x_train_all[val_idx],
+                    y_val=y_train_all[val_idx],
+                    x_test=x_test,
+                    y_test=y_test,
+                    sid_train=np.zeros((len(train_idx),), dtype=np.int64),
+                    sid_val=np.zeros((len(val_idx),), dtype=np.int64),
+                    sid_test=np.zeros((len(y_test),), dtype=np.int64),
+                    x_train_full=x_train_all,
+                    y_train_full=y_train_all,
+                    sid_train_full=np.zeros((len(y_train_all),), dtype=np.int64),
+                ),
+            )
+        )
+
+    return folds
+
+
 def build_loso_train_eval_folds(
     subject_data: Dict[str, Tuple[np.ndarray, np.ndarray]],
     val_ratio: float = 0.2,
@@ -289,4 +338,7 @@ def normalize_by_train_stats(fold: FoldData) -> FoldData:
         x_test=(fold.x_test - mean) / std,
         y_test=fold.y_test,
         sid_test=fold.sid_test,
+        x_train_full=None if fold.x_train_full is None else (fold.x_train_full - mean) / std,
+        y_train_full=fold.y_train_full,
+        sid_train_full=fold.sid_train_full,
     )

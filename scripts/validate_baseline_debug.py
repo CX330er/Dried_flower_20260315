@@ -31,6 +31,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from datasets.loso_npz import build_loso_folds, load_subject_data, normalize_by_train_stats
 from trainers.baseline_trainer import MODEL_REGISTRY
+from utils.run_naming import make_dated_results_root, write_run_config
 from utils.metrics import save_training_curve
 from utils.seed import set_seed
 
@@ -39,14 +40,24 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Baseline diagnostics for MI EEG project")
     parser.add_argument("--model", type=str, default="EEGNet", choices=list(MODEL_REGISTRY.keys()))
     parser.add_argument("--data_dir", type=str, default="data/processed/bcic_iv_2a")
-    parser.add_argument("--results_root", type=str, default="results/debug")
+    parser.add_argument("--results_root", type=str, default=None)
+    parser.add_argument("--run_timestamp", type=str, default=None, help="Optional date tag for automatic result names, e.g. 2026-05-13_1125.")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--epochs", type=int, default=80)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--overfit_trials", type=int, default=40)
     parser.add_argument("--run_loso", action="store_true", help="Run full LOSO diagnostic (slower)")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.results_root is None:
+        args.results_root = str(
+            make_dated_results_root(
+                "results",
+                name_parts=[args.model, "baseline_debug"],
+                run_timestamp=args.run_timestamp,
+            )
+        )
+    return args
 
 
 def _make_loader(x: np.ndarray, y: np.ndarray, batch_size: int, shuffle: bool) -> DataLoader:
@@ -274,6 +285,22 @@ def main() -> None:
 
     out_dir = Path(args.results_root)
     out_dir.mkdir(parents=True, exist_ok=True)
+    write_run_config(
+        out_dir,
+        {
+            "entrypoint": "scripts/validate_baseline_debug.py",
+            "argv": sys.argv,
+            "model": args.model,
+            "data_dir": args.data_dir,
+            "seed": args.seed,
+            "epochs": args.epochs,
+            "lr": args.lr,
+            "batch_size": args.batch_size,
+            "overfit_trials": args.overfit_trials,
+            "run_loso": args.run_loso,
+        },
+    )
+    print(f"[results] {out_dir}")
 
     subject_data = load_subject_data(args.data_dir)
     device = "cuda" if torch.cuda.is_available() else "cpu"

@@ -86,8 +86,8 @@ def parse_args() -> argparse.Namespace:
         default="train",
         help="Process training sessions only, evaluation sessions only, or both.",
     )
-    parser.add_argument("--l-freq", type=float, default=5.0)
-    parser.add_argument("--h-freq", type=float, default=30.0)
+    parser.add_argument("--l-freq", type=float, default=4.0)
+    parser.add_argument("--h-freq", type=float, default=40.0)
     parser.add_argument("--sfreq", type=int, default=250)
     parser.add_argument("--tmin", type=float, default=0.5)
     parser.add_argument("--tmax", type=float, default=4.5)
