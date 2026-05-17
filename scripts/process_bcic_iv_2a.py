@@ -55,8 +55,26 @@ def _session_tag(session_mode: str) -> str:
     }[session_mode]
 
 
-def default_processed_dir(session_mode: str, tmin: float, tmax: float, l_freq: float, h_freq: float) -> Path:
-    name = f"bcic_iv_2a_{_session_tag(session_mode)}_{_window_tag(tmin, tmax)}_{_band_tag(l_freq, h_freq)}"
+def _reject_tag(reject_bad_trials: str) -> str:
+    if reject_bad_trials == "trial_start_to_tmax":
+        return "_reject1023"
+    if reject_bad_trials == "cue_to_tmax":
+        return "_reject1023_cue_window"
+    return ""
+
+
+def default_processed_dir(
+    session_mode: str,
+    tmin: float,
+    tmax: float,
+    l_freq: float,
+    h_freq: float,
+    reject_bad_trials: str,
+) -> Path:
+    name = (
+        f"bcic_iv_2a_{_session_tag(session_mode)}_{_window_tag(tmin, tmax)}_"
+        f"{_band_tag(l_freq, h_freq)}{_reject_tag(reject_bad_trials)}"
+    )
     return Path("data") / "processed" / name
 
 
@@ -93,6 +111,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tmax", type=float, default=4.5)
     parser.add_argument("--butter-order", type=int, default=4)
     parser.add_argument(
+        "--reject-bad-trials",
+        choices=["none", "cue_to_tmax", "trial_start_to_tmax"],
+        default="trial_start_to_tmax",
+        help=(
+            "How to reject BCIC-IV-2a 1023 bad-trial markers. "
+            "trial_start_to_tmax drops a trial if 1023 occurs from event 768 "
+            "to cue+tmax, matching the usual rejected-trial interpretation."
+        ),
+    )
+    parser.add_argument(
         "--replace-out-dir",
         action="store_true",
         help="If set, delete existing out-dir before writing newly processed files.",
@@ -126,7 +154,16 @@ def main() -> None:
     raw_dir = Path(args.raw_dir)
     label_dir = Path(args.label_dir)
     if args.out_dir is None:
-        args.out_dir = str(default_processed_dir(args.session_mode, args.tmin, args.tmax, args.l_freq, args.h_freq))
+        args.out_dir = str(
+            default_processed_dir(
+                args.session_mode,
+                args.tmin,
+                args.tmax,
+                args.l_freq,
+                args.h_freq,
+                args.reject_bad_trials,
+            )
+        )
     out_dir = Path(args.out_dir)
 
     if args.replace_out_dir and out_dir.exists():
@@ -141,6 +178,7 @@ def main() -> None:
         tmax=args.tmax,
         baseline=None,
         butter_order=args.butter_order,
+        reject_bad_trials=args.reject_bad_trials,
     )
 
     all_files = iter_raw_files(raw_dir)
@@ -156,6 +194,7 @@ def main() -> None:
             "tmax": config.tmax,
             "butter_order": config.butter_order,
             "reject_markers": sorted(DEFAULT_REJECT_MARKERS),
+            "reject_bad_trials": args.reject_bad_trials,
             "session_mode": args.session_mode,
             "label_dir": str(label_dir),
             "target_shape": "B x 1 x C x T",

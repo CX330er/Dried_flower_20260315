@@ -24,6 +24,7 @@ from datasets.loso_npz import (
 )
 from models.deepconvnet import DeepConvNet
 from models.eegnet import EEGNet
+from models.eeg_dg import EEGDGNetwork
 from models.fbcnet import FBCNet
 from models.msfbcnn import MSFBCNN
 from models.shallowconvnet import ShallowConvNet
@@ -43,13 +44,14 @@ MODEL_REGISTRY = {
     "ShallowConvNet": ShallowConvNet,
     "DeepConvNet": DeepConvNet,
     "EEGNet": EEGNet,
+    "EEGDG": EEGDGNetwork,
     "FBCNet": FBCNet,
     "MSFBCNN": MSFBCNN,
     "EEGNetFSFE": EEGNetFSFE,
 }
 
 ALL_MODELS = ["ShallowConvNet", "DeepConvNet", "EEGNet", "FBCNet", "MSFBCNN", "EEGNetFSFE"]
-PROTOCOL_CHOICES = ("loso_t", "subject_dependent_te", "subject_dependent_te_final", "loso_te")
+PROTOCOL_CHOICES = ("loso_t", "subject_dependent_te", "subject_dependent_te_final", "loso_te", "eegdg_paper_te")
 
 
 def _build_protocol_folds(subject_data, protocol: str, val_ratio: float, seed: int):
@@ -61,6 +63,8 @@ def _build_protocol_folds(subject_data, protocol: str, val_ratio: float, seed: i
         return build_subject_dependent_te_final_folds(subject_data, val_ratio=val_ratio, seed=seed)
     if protocol == "loso_te":
         return build_loso_train_eval_folds(subject_data, val_ratio=val_ratio, seed=seed)
+    if protocol == "eegdg_paper_te":
+        raise ValueError("protocol=eegdg_paper_te is only available with --model EEGDG --aux_mode eegdg_full.")
     raise ValueError(f"Unknown protocol={protocol}. Expected one of {PROTOCOL_CHOICES}.")
 
 
@@ -265,6 +269,61 @@ def _eegdg_loss(
     return marginal + conditional_weight * conditional
 
 
+def _supervised_contrastive_loss(
+    features: torch.Tensor,
+    labels: torch.Tensor,
+    temperature: float = 0.2,
+) -> torch.Tensor:
+    """Label-aware feature loss that keeps class structure while mixing domains."""
+    if features.size(0) < 2:
+        return features.new_tensor(0.0)
+
+    features = F.normalize(features, p=2, dim=1)
+    logits = features @ features.T / max(float(temperature), 1e-6)
+    logits = logits - logits.max(dim=1, keepdim=True).values.detach()
+
+    eye = torch.eye(labels.size(0), device=labels.device, dtype=torch.bool)
+    positive_mask = labels.unsqueeze(0).eq(labels.unsqueeze(1)) & ~eye
+    logits_mask = ~eye
+
+    exp_logits = torch.exp(logits) * logits_mask.float()
+    log_prob = logits - torch.log(exp_logits.sum(dim=1, keepdim=True).clamp_min(1e-12))
+
+    positive_count = positive_mask.sum(dim=1)
+    valid = positive_count > 0
+    if not valid.any():
+        return features.new_tensor(0.0)
+
+    mean_log_prob_pos = (positive_mask.float() * log_prob).sum(dim=1)[valid] / positive_count[valid]
+    return -mean_log_prob_pos.mean()
+
+
+def _same_class_subject_mixup(
+    xb: torch.Tensor,
+    yb: torch.Tensor,
+    subject_ids: torch.Tensor | None,
+    alpha: float,
+    prob: float,
+) -> torch.Tensor:
+    """Mix same-class trials from different source subjects without changing labels."""
+    if subject_ids is None or alpha <= 0.0 or prob <= 0.0:
+        return xb
+    if torch.rand((), device=xb.device).item() > prob:
+        return xb
+
+    mixed = xb.clone()
+    beta = torch.distributions.Beta(alpha, alpha)
+    for idx in range(xb.size(0)):
+        mask = (yb == yb[idx]) & (subject_ids != subject_ids[idx])
+        candidates = torch.nonzero(mask, as_tuple=False).flatten()
+        if candidates.numel() == 0:
+            continue
+        partner = candidates[torch.randint(candidates.numel(), (1,), device=xb.device)].item()
+        lam = beta.sample().to(device=xb.device, dtype=xb.dtype)
+        mixed[idx] = lam * xb[idx] + (1.0 - lam) * xb[partner]
+    return mixed
+
+
 def _run_epoch(
     model,
     loader,
@@ -274,6 +333,9 @@ def _run_epoch(
     aux_mode: str = "none",
     lambda_aux: float = 0.0,
     eegdg_conditional_weight: float = 1.0,
+    supcon_temperature: float = 0.2,
+    same_class_mixup_alpha: float = 0.0,
+    same_class_mixup_prob: float = 0.0,
     max_time_shift: int = 0,
     noise_std: float = 0.0,
     grad_clip_norm: float = 0.0,
@@ -298,6 +360,15 @@ def _run_epoch(
 
             xb, yb = xb.to(device), yb.to(device)
 
+            if train:
+                xb = _same_class_subject_mixup(
+                    xb,
+                    yb,
+                    sid,
+                    alpha=same_class_mixup_alpha,
+                    prob=same_class_mixup_prob,
+                )
+
             if train and max_time_shift > 0:
                 shift = int(np.random.randint(-max_time_shift, max_time_shift + 1))
                 if shift != 0:
@@ -305,7 +376,7 @@ def _run_epoch(
             if train and noise_std > 0.0:
                 xb = xb + noise_std * torch.randn_like(xb)
 
-            if aux_mode in {"center", "coral", "eegdg"}:
+            if aux_mode in {"center", "coral", "eegdg", "dg_supcon"}:
                 logits, features = model(xb, return_features=True)
             else:
                 logits = model(xb)
@@ -323,6 +394,12 @@ def _run_epoch(
                     yb,
                     sid,
                     conditional_weight=eegdg_conditional_weight,
+                )
+            elif aux_mode == "dg_supcon" and features is not None:
+                aux_loss = _supervised_contrastive_loss(
+                    features,
+                    yb,
+                    temperature=supcon_temperature,
                 )
 
             loss = cls_loss + effective_lambda_aux * aux_loss
@@ -356,9 +433,12 @@ def train_and_evaluate_model(
     aux_mode: str = "none",
     lambda_aux: float = 0.02,
     eegdg_conditional_weight: float = 1.0,
+    supcon_temperature: float = 0.2,
     label_smoothing: float = 0.1,
     use_class_weights: bool = True,
     use_weighted_sampler: bool = True,
+    same_class_mixup_alpha: float = 0.0,
+    same_class_mixup_prob: float = 0.0,
     max_time_shift: int = 25,
     noise_std: float = 0.01,
     grad_clip_norm: float = 1.0,
@@ -415,9 +495,10 @@ def train_and_evaluate_model(
         scheduler = CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-5)
         early = EarlyStopping(patience=patience)
 
-        if aux_mode in {"center", "coral", "eegdg"}:
+        needs_subject_ids = aux_mode in {"center", "coral", "eegdg"} or same_class_mixup_alpha > 0.0
+        if needs_subject_ids:
             if fold.sid_train is None:
-                raise ValueError("sid_train is required when aux_mode is center/coral/eegdg.")
+                raise ValueError("sid_train is required for subject-aware DG training.")
             train_dataset = EEGSubjectDataset(fold.x_train, fold.y_train, fold.sid_train)
             val_dataset = EEGSubjectDataset(fold.x_val, fold.y_val, fold.sid_val)
         else:
@@ -454,7 +535,7 @@ def train_and_evaluate_model(
         )
         for epoch_idx in epoch_bar:
             lambda_epoch = lambda_aux
-            if aux_mode in {"center", "coral", "eegdg"} and aux_warmup_epochs > 0:
+            if aux_mode in {"center", "coral", "eegdg", "dg_supcon"} and aux_warmup_epochs > 0:
                 lambda_epoch = lambda_aux * min(1.0, float(epoch_idx + 1) / float(aux_warmup_epochs))
 
             tr_loss, tr_acc = _run_epoch(
@@ -466,6 +547,9 @@ def train_and_evaluate_model(
                 aux_mode=aux_mode,
                 lambda_aux=lambda_epoch,
                 eegdg_conditional_weight=eegdg_conditional_weight,
+                supcon_temperature=supcon_temperature,
+                same_class_mixup_alpha=same_class_mixup_alpha,
+                same_class_mixup_prob=same_class_mixup_prob,
                 max_time_shift=max_time_shift,
                 noise_std=noise_std,
                 grad_clip_norm=grad_clip_norm,
@@ -479,6 +563,7 @@ def train_and_evaluate_model(
                 aux_mode=aux_mode,
                 lambda_aux=0.0,
                 eegdg_conditional_weight=eegdg_conditional_weight,
+                supcon_temperature=supcon_temperature,
             )
 
             scheduler.step()
@@ -549,9 +634,10 @@ def train_and_evaluate_model(
             optimizer_final = Adam(model.parameters(), lr=lr)
             scheduler_final = CosineAnnealingLR(optimizer_final, T_max=max(selection_best_epoch, 1), eta_min=1e-5)
 
-            if aux_mode in {"center", "coral", "eegdg"}:
+            needs_subject_ids_final = aux_mode in {"center", "coral", "eegdg"} or same_class_mixup_alpha > 0.0
+            if needs_subject_ids_final:
                 if fold_raw.sid_train_full is None:
-                    raise ValueError("sid_train_full is required when aux_mode is center/coral/eegdg.")
+                    raise ValueError("sid_train_full is required for subject-aware DG training.")
                 train_dataset_final = EEGSubjectDataset(x_train_full, y_train_full, fold_raw.sid_train_full)
             else:
                 train_dataset_final = EEGDataset(x_train_full, y_train_full)
@@ -588,7 +674,7 @@ def train_and_evaluate_model(
             )
             for final_epoch_idx in final_epoch_bar:
                 lambda_epoch = lambda_aux
-                if aux_mode in {"center", "coral", "eegdg"} and aux_warmup_epochs > 0:
+                if aux_mode in {"center", "coral", "eegdg", "dg_supcon"} and aux_warmup_epochs > 0:
                     lambda_epoch = lambda_aux * min(
                         1.0,
                         float(final_epoch_idx + 1) / float(aux_warmup_epochs),
@@ -603,6 +689,9 @@ def train_and_evaluate_model(
                     aux_mode=aux_mode,
                     lambda_aux=lambda_epoch,
                     eegdg_conditional_weight=eegdg_conditional_weight,
+                    supcon_temperature=supcon_temperature,
+                    same_class_mixup_alpha=same_class_mixup_alpha,
+                    same_class_mixup_prob=same_class_mixup_prob,
                     max_time_shift=max_time_shift,
                     noise_std=noise_std,
                     grad_clip_norm=grad_clip_norm,
@@ -671,9 +760,12 @@ def train_and_evaluate_model(
                 "aux_mode": aux_mode,
                 "lambda_aux": float(lambda_aux),
                 "eegdg_conditional_weight": float(eegdg_conditional_weight),
+                "supcon_temperature": float(supcon_temperature),
                 "label_smoothing": float(label_smoothing),
                 "use_class_weights": bool(use_class_weights),
                 "use_weighted_sampler": bool(use_weighted_sampler),
+                "same_class_mixup_alpha": float(same_class_mixup_alpha),
+                "same_class_mixup_prob": float(same_class_mixup_prob),
                 "max_time_shift": int(max_time_shift),
                 "noise_std": float(noise_std),
                 "grad_clip_norm": float(grad_clip_norm),

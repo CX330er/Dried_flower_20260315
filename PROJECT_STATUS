@@ -37,7 +37,7 @@ variant is EEGNetFSFE, which contains:
 - Raw data: data/raw/A01T-A09T.gdf and data/raw/A01E-A09E.gdf.
 - Evaluation true labels: data/raw/true_labels/AxxE.mat.
 - Current target processed T/E data:
-  data/processed/bcic_iv_2a_train_eval_window_0p5_4p5_band_4_40hz
+  data/processed/bcic_iv_2a_train_eval_window_0p5_4p5_band_4_40hz_reject1023
 - Channels: 22 EEG channels.
 - Classes: 4 classes, labels normalized to y in {0, 1, 2, 3}.
 - Sampling rate: 250 Hz.
@@ -45,8 +45,12 @@ variant is EEGNetFSFE, which contains:
 - Current time window: 0.5-4.5 s.
 - Processed shape: [N, 1, 22, T].
 - Loader/model input shape: [B, 22, T]; models expand to [B, 1, 22, T] when needed.
-- The expected T/E processed data contains 18 session files, 5184 total trials,
-  and every AxxT/AxxE session has 288 trials with 72 trials per class.
+- Current preprocessing removes BCIC-IV-2a 1023 rejected trials from event 768
+  trial start through cue + tmax, matching the usual rejected-trial handling in
+  classic BCIC-IV-2a papers.
+- The current reject1023 T/E processed data contains 18 session files and 4696
+  total trials. Session-level trial counts vary because rejected trials are
+  removed.
 - Normalization is computed from each fold's training split and then applied
   to train, validation, and test splits.
 
@@ -119,6 +123,17 @@ The default "all" run list currently includes:
 - MSFBCNN
 - EEGNetFSFE
 
+EEGDG is available as a single-model option. It reproduces the public
+EEG-DG DG_Network architecture with four temporal inception branches,
+depthwise spatial filtering, four separable temporal branches, domain-specific
+feature heads, domain-weighted feature fusion, and a final classifier.
+
+The full EEG-DG method is available through --model EEGDG --aux_mode
+eegdg_full. This route uses a dedicated multi-source trainer with one loader
+per source subject in each LOSO fold, synchronized source batches, the
+original-style classification/domain/MMD/MCD loss combination, and source
+validation for early stopping. Target AxxE data is used only for final testing.
+
 Training accepts --seed so repeated runs can be compared and filtered by
 fold-level metrics.
 Interrupted runs can be continued with --resume. A resumed run skips fold
@@ -130,6 +145,13 @@ Available source-domain auxiliary modes:
 - center: supervised within-class feature compactness.
 - coral: pairwise source-subject covariance alignment.
 - eegdg: EEG-DG-style source-subject marginal MMD plus class-conditional MMD.
+- eegdg_full: full EEG-DG method for --model EEGDG only.
+- dg_supcon: supervised contrastive feature regularization that preserves
+  class separability across source subjects.
+
+Same-class cross-subject mixup can be enabled with --same_class_mixup_alpha
+and --same_class_mixup_prob. It only mixes source trials from different
+subjects when their labels match.
 
 ## Current Result Naming Rule
 
@@ -138,6 +160,7 @@ data artifact itself:
 
 - bcic_iv_2a_train_only_window_0p5_4p5_band_4_40hz
 - bcic_iv_2a_train_eval_window_0p5_4p5_band_4_40hz
+- bcic_iv_2a_train_eval_window_0p5_4p5_band_4_40hz_reject1023
 
 New result directories should use date-based run names and should not include
 long preprocessing tags:

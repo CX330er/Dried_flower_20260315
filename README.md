@@ -9,6 +9,10 @@ Research code for BCIC-IV-2a four-class motor imagery EEG recognition, with a fo
 - Classes: 4 motor imagery classes, mapped to labels `0, 1, 2, 3`.
 - Current preprocessing band: `4-40Hz`.
 - Current selected time window: `0.5-4.5s`.
+- Current artifact handling: BCIC-IV-2a `1023` rejected trials are removed from
+  event `768` trial start through cue + `tmax`.
+- Current processed T/E data:
+  `data/processed/bcic_iv_2a_train_eval_window_0p5_4p5_band_4_40hz_reject1023`.
 - Processed trial shape: `[N, 1, 22, T]`; loaders also accept legacy `[N, 22, T]`.
 
 Training sessions `A01T-A09T` use event labels `769/770/771/772`. Evaluation sessions `A01E-A09E` use cue event `783` plus official labels from `data/raw/true_labels/AxxE.mat`.
@@ -20,6 +24,7 @@ Processed data directories should include session scope, window, and band:
 ```text
 data/processed/bcic_iv_2a_train_only_window_0p5_4p5_band_4_40hz
 data/processed/bcic_iv_2a_train_eval_window_0p5_4p5_band_4_40hz
+data/processed/bcic_iv_2a_train_eval_window_0p5_4p5_band_4_40hz_reject1023
 ```
 
 Result directories should use the change-log date/time as the run id, plus a short model/protocol suffix. Do not include preprocessing tags such as `window_0p5_4p5_band_4_40hz` in new result directory names; record those details in `PROJECT_CHANGE_LOG.md` and the generated `run_config.json` instead.
@@ -45,63 +50,94 @@ results/2026-05-13_1200_eegnet_stepwise_debug
 Generate train-only data for window sweep or legacy LOSO debug:
 
 ```powershell
-D:\anaconda3\envs\weed_out\python.exe scripts\process_bcic_iv_2a.py --raw-dir data/raw --session-mode train --l-freq 4 --h-freq 40 --tmin 0.5 --tmax 4.5 --replace-out-dir
+D:\anaconda3\envs\weed_out\python.exe scripts\process_bcic_iv_2a.py --raw-dir data/raw --session-mode train --l-freq 4 --h-freq 40 --tmin 0.5 --tmax 4.5 --reject-bad-trials trial_start_to_tmax --replace-out-dir
 ```
 
 Generate matched T/E data for protocol 1 and protocol 2:
 
 ```powershell
-D:\anaconda3\envs\weed_out\python.exe scripts\process_bcic_iv_2a.py --raw-dir data/raw --label-dir data/raw/true_labels --session-mode all --l-freq 4 --h-freq 40 --tmin 0.5 --tmax 4.5 --replace-out-dir
+D:\anaconda3\envs\weed_out\python.exe scripts\process_bcic_iv_2a.py --raw-dir data/raw --label-dir data/raw/true_labels --session-mode all --l-freq 4 --h-freq 40 --tmin 0.5 --tmax 4.5 --reject-bad-trials trial_start_to_tmax --replace-out-dir
 ```
 
-When `--out-dir` is omitted, the preprocessing script now creates a descriptive directory name automatically.
+When `--out-dir` is omitted, the preprocessing script now creates a descriptive
+directory name automatically. With `--reject-bad-trials trial_start_to_tmax`,
+the default output directory ends in `_reject1023`.
 
 ## Training
 
 Run protocol 1 with all baseline models:
 
 ```powershell
-D:\anaconda3\envs\weed_out\python.exe main.py --model all --data_dir data/processed/bcic_iv_2a_train_eval_window_0p5_4p5_band_4_40hz --protocol subject_dependent_te
+D:\anaconda3\envs\weed_out\python.exe main.py --model all --data_dir data/processed/bcic_iv_2a_train_eval_window_0p5_4p5_band_4_40hz_reject1023 --protocol subject_dependent_te
 ```
 
 Run protocol 1 final baseline with all baseline models:
 
 ```powershell
-D:\anaconda3\envs\weed_out\python.exe main.py --model all --data_dir data/processed/bcic_iv_2a_train_eval_window_0p5_4p5_band_4_40hz --protocol subject_dependent_te_final
+D:\anaconda3\envs\weed_out\python.exe main.py --model all --data_dir data/processed/bcic_iv_2a_train_eval_window_0p5_4p5_band_4_40hz_reject1023 --protocol subject_dependent_te_final
 ```
 
 Run protocol 2 with all baseline models plus EEGNetFSFE:
 
 ```powershell
-D:\anaconda3\envs\weed_out\python.exe main.py --model all --data_dir data/processed/bcic_iv_2a_train_eval_window_0p5_4p5_band_4_40hz --protocol loso_te --seed 42
+D:\anaconda3\envs\weed_out\python.exe main.py --model all --data_dir data/processed/bcic_iv_2a_train_eval_window_0p5_4p5_band_4_40hz_reject1023 --protocol loso_te --seed 42
 ```
 
 Resume an interrupted run by reusing the same timestamp and adding `--resume`:
 
 ```powershell
-D:\anaconda3\envs\weed_out\python.exe main.py --model all --data_dir data/processed/bcic_iv_2a_train_eval_window_0p5_4p5_band_4_40hz --protocol loso_te --seed 42 --run_timestamp 2026-05-14_2000 --aux_mode none --resume
+D:\anaconda3\envs\weed_out\python.exe main.py --model all --data_dir data/processed/bcic_iv_2a_train_eval_window_0p5_4p5_band_4_40hz_reject1023 --protocol loso_te --seed 42 --run_timestamp 2026-05-14_2000 --aux_mode none --resume
 ```
 
 Run one model:
 
 ```powershell
-D:\anaconda3\envs\weed_out\python.exe main.py --model EEGNet --data_dir data/processed/bcic_iv_2a_train_eval_window_0p5_4p5_band_4_40hz --protocol loso_te
+D:\anaconda3\envs\weed_out\python.exe main.py --model EEGNet --data_dir data/processed/bcic_iv_2a_train_eval_window_0p5_4p5_band_4_40hz_reject1023 --protocol loso_te
 ```
 
 Run EEGNetFSFE with EEG-DG-style source-domain alignment:
 
 ```powershell
-D:\anaconda3\envs\weed_out\python.exe main.py --model EEGNetFSFE --data_dir data/processed/bcic_iv_2a_train_eval_window_0p5_4p5_band_4_40hz --protocol loso_te --seed 42 --run_timestamp 2026-05-16_2000 --aux_mode eegdg --lambda_aux 0.05 --eegdg_conditional_weight 1.0
+D:\anaconda3\envs\weed_out\python.exe main.py --model EEGNetFSFE --data_dir data/processed/bcic_iv_2a_train_eval_window_0p5_4p5_band_4_40hz_reject1023 --protocol loso_te --seed 42 --run_timestamp 2026-05-16_2000 --aux_mode eegdg --lambda_aux 0.05 --eegdg_conditional_weight 1.0
 ```
 
 `aux_mode=eegdg` uses only source subjects in each LOSO fold. It adds
 feature-level marginal MMD across source subjects and class-conditional MMD
 within each available class.
 
+Run the reproduced EEG-DG network architecture:
+
+```powershell
+D:\anaconda3\envs\weed_out\python.exe main.py --model EEGDG --data_dir data/processed/bcic_iv_2a_train_eval_window_0p5_4p5_band_4_40hz_reject1023 --protocol loso_te --seed 42 --run_timestamp 2026-05-17_1000 --aux_mode none
+```
+
+Run the full EEG-DG method with synchronized multi-source subject batches and
+the original-style classification/domain/MMD/MCD loss combination:
+
+```powershell
+D:\anaconda3\envs\weed_out\python.exe main.py --model EEGDG --data_dir data/processed/bcic_iv_2a_train_eval_window_0p5_4p5_band_4_40hz_reject1023 --protocol loso_te --seed 42 --run_timestamp 2026-05-17_1400 --aux_mode eegdg_full --eegdg_full_epochs 500 --eegdg_domain_batch_size 8 --eegdg_mmd_weight 0.1 --eegdg_domain_weight 0.1 --eegdg_mcd_weight 0.1 --eegdg_mcd_alpha 0.1
+```
+
+`aux_mode=eegdg_full` is only valid with `--model EEGDG`. It keeps the strict
+LOSO rule: target AxxE is used only for final testing. Model selection uses
+source-subject validation splits, not target data.
+
+Run EEGNetFSFE with a more conservative DG strategy that keeps class
+separability explicit:
+
+```powershell
+D:\anaconda3\envs\weed_out\python.exe main.py --model EEGNetFSFE --data_dir data/processed/bcic_iv_2a_train_eval_window_0p5_4p5_band_4_40hz_reject1023 --protocol loso_te --seed 42 --run_timestamp 2026-05-17_1030 --aux_mode dg_supcon --lambda_aux 0.02 --supcon_temperature 0.2 --same_class_mixup_alpha 0.2 --same_class_mixup_prob 0.5
+```
+
+`dg_supcon` adds supervised contrastive feature regularization. The optional
+same-class mixup mixes trials from different source subjects only when their
+labels match, so it encourages subject-invariant class features without
+blending labels.
+
 When `--results_root` is omitted, `main.py` creates a date-based directory automatically. To align a run with a change-log entry, pass the same date tag explicitly:
 
 ```powershell
-D:\anaconda3\envs\weed_out\python.exe main.py --model all --data_dir data/processed/bcic_iv_2a_train_eval_window_0p5_4p5_band_4_40hz --protocol loso_te --run_timestamp 2026-05-14_1900
+D:\anaconda3\envs\weed_out\python.exe main.py --model all --data_dir data/processed/bcic_iv_2a_train_eval_window_0p5_4p5_band_4_40hz_reject1023 --protocol loso_te --run_timestamp 2026-05-14_1900
 ```
 
 ## Stepwise Debug

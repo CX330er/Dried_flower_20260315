@@ -72,6 +72,7 @@ class ProcessConfig:
     tmax: float = 4.5
     baseline: Tuple[float, float] | None = None
     butter_order: int = 4
+    reject_bad_trials: str = "trial_start_to_tmax"
 
 def _normalize_annotation_desc(desc: str) -> str:
     """Extract digit-based code from annotation text when possible."""
@@ -120,6 +121,13 @@ def _extract_bad_event_times(raw: mne.io.BaseRaw, reject_markers: Iterable[str])
         if code in reject_set:
             bad_times.append(float(ann["onset"]))
     return np.asarray(bad_times, dtype=float)
+
+
+def _extract_trial_start_events(raw: mne.io.BaseRaw) -> np.ndarray:
+    events, event_id = mne.events_from_annotations(raw, verbose="ERROR")
+    code_by_event_value = {value: _normalize_annotation_desc(key) for key, value in event_id.items()}
+    trial_starts = [ev for ev in events if code_by_event_value.get(int(ev[2]), "") == "768"]
+    return np.asarray(trial_starts, dtype=int)
 
 
 def _extract_cue_events(raw: mne.io.BaseRaw) -> Tuple[np.ndarray, np.ndarray]:
@@ -185,24 +193,62 @@ def _drop_bad_trials(
     sfreq: float,
     bad_times: np.ndarray,
     trial_window_sec: float = 6.0,
-) -> Tuple[np.ndarray, np.ndarray]:
-    """Drop trials if a bad marker occurs during [cue, cue + trial_window_sec]."""
+    reject_bad_trials: str = "trial_start_to_tmax",
+    trial_start_events: np.ndarray | None = None,
+) -> Tuple[np.ndarray, np.ndarray, Dict[str, int | str]]:
+    """Drop trials if a bad marker occurs in the configured trial window."""
+    if reject_bad_trials not in {"none", "cue_to_tmax", "trial_start_to_tmax"}:
+        raise ValueError(
+            "reject_bad_trials must be one of: none, cue_to_tmax, trial_start_to_tmax. "
+            f"Got {reject_bad_trials!r}."
+        )
+
+    reject_meta: Dict[str, int | str] = {
+        "reject_bad_trials": reject_bad_trials,
+        "n_reject_markers": int(bad_times.size),
+        "n_trials_before_reject": int(len(cue_labels)),
+        "n_trials_dropped_reject": 0,
+    }
+    if reject_bad_trials == "none":
+        reject_meta["n_trials_after_reject"] = int(len(cue_labels))
+        return cue_events, cue_labels, reject_meta
     if bad_times.size == 0:
-        return cue_events, cue_labels
+        reject_meta["n_trials_after_reject"] = int(len(cue_labels))
+        return cue_events, cue_labels, reject_meta
+
+    trial_start_samples = None
+    if reject_bad_trials == "trial_start_to_tmax":
+        if trial_start_events is None or len(trial_start_events) == 0:
+            raise ValueError("trial_start_to_tmax rejection requires trial start events (768).")
+        trial_start_samples = np.asarray(trial_start_events[:, 0], dtype=int)
 
     kept_events = []
     kept_labels = []
+    dropped = 0
     for ev, label in zip(cue_events, cue_labels):
         cue_time = float(ev[0]) / sfreq
-        in_trial = np.logical_and(bad_times >= cue_time, bad_times <= cue_time + trial_window_sec)
+        reject_start_time = cue_time
+        if trial_start_samples is not None:
+            start_idx = int(np.searchsorted(trial_start_samples, int(ev[0]), side="right") - 1)
+            if start_idx >= 0:
+                reject_start_time = float(trial_start_samples[start_idx]) / sfreq
+
+        in_trial = np.logical_and(
+            bad_times >= reject_start_time,
+            bad_times <= cue_time + trial_window_sec,
+        )
         if not np.any(in_trial):
             kept_events.append(ev)
             kept_labels.append(label)
+        else:
+            dropped += 1
 
     if not kept_events:
         raise RuntimeError("All trials were removed after artifact/reject filtering.")
 
-    return np.asarray(kept_events, dtype=int), np.asarray(kept_labels, dtype=int)
+    reject_meta["n_trials_dropped_reject"] = int(dropped)
+    reject_meta["n_trials_after_reject"] = int(len(kept_labels))
+    return np.asarray(kept_events, dtype=int), np.asarray(kept_labels, dtype=int), reject_meta
 
 def _butter_bandpass_filter(
     x: np.ndarray,
@@ -263,12 +309,15 @@ def preprocess_one_file(
         cue_events, cue_labels = _extract_eval_cue_events(raw, external_labels=external_labels)
         label_source = "external_true_labels"
     bad_times = _extract_bad_event_times(raw, reject_markers=reject_markers)
-    cue_events, cue_labels = _drop_bad_trials(
+    trial_start_events = _extract_trial_start_events(raw)
+    cue_events, cue_labels, reject_meta = _drop_bad_trials(
         cue_events,
         cue_labels,
         sfreq=raw.info["sfreq"],
         bad_times=bad_times,
         trial_window_sec=config.tmax,
+        reject_bad_trials=config.reject_bad_trials,
+        trial_start_events=trial_start_events,
     )
 
     epoch_events = cue_events.copy()
@@ -306,6 +355,7 @@ def preprocess_one_file(
         "sfreq": int(config.resample_sfreq),
         "shape": [int(v) for v in x.shape],
         "label_source": label_source,
+        **reject_meta,
     }
     return x, y, meta
 
